@@ -34,6 +34,7 @@ let package = Package(
         .target(
             name: "OpenClawCore",
             dependencies: [
+                "OpenClawProtocol",
                 .product(name: "Crypto", package: "swift-crypto"),
             ],
             swiftSettings: [
@@ -120,3 +121,4 @@ let package = Package(
         ),
     ]
 )
+
