@@ -63,7 +63,13 @@ let package = Package(
         ),
         .target(
             name: "OpenClawChannels",
-            dependencies: ["OpenClawCore", "OpenClawProtocol", "OpenClawGateway", "OpenClawPlugins"],
+            dependencies: [
+                "OpenClawCore",
+                "OpenClawProtocol",
+                "OpenClawGateway",
+                "OpenClawPlugins",
+                "OpenClawAgents",
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]
