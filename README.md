@@ -27,3 +27,9 @@ Gateway protocol models are generated from `Scripts/protocol-schema.json`.
 node Scripts/protocol-gen-swift.mjs
 ```
 
+## Networking strict-concurrency gate
+
+```bash
+Scripts/check-networking-concurrency.sh
+```
+
