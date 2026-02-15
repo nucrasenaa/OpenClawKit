@@ -19,3 +19,11 @@ multi-target Swift 6.2 package with Apple and Linux compatibility.
 - `OpenClawMedia`
 - `OpenClawKit`
 
+## Protocol model generation
+
+Gateway protocol models are generated from `Scripts/protocol-schema.json`.
+
+```bash
+node Scripts/protocol-gen-swift.mjs
+```
+

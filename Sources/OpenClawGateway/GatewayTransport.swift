@@ -34,14 +34,24 @@ public actor GatewayClient {
         self.connected
     }
 
-    public func send(method: String, params: [String: String] = [:]) async throws -> ResponseFrame {
+    public func send(
+        method: String,
+        params: [String: AnyCodable] = [:]
+    ) async throws -> ResponseFrame
+    {
         guard self.connected, self.endpoint != nil else {
             throw OpenClawCoreError.unavailable("Gateway is not connected")
         }
         let id = UUID().uuidString
         self.nextSequence += 1
-        _ = RequestFrame(type: "req", id: id, method: method, params: params)
-        return ResponseFrame(type: "res", id: id, ok: true, payload: ["status": "accepted"])
+        _ = RequestFrame(type: "req", id: id, method: method, params: AnyCodable(params))
+        return ResponseFrame(
+            type: "res",
+            id: id,
+            ok: true,
+            payload: AnyCodable(["status": AnyCodable("accepted")]),
+            error: nil
+        )
     }
 }
 

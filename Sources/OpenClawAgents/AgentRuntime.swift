@@ -1,6 +1,7 @@
 import Foundation
 import OpenClawCore
 import OpenClawGateway
+import OpenClawProtocol
 
 public struct AgentRunRequest: Sendable {
     public let sessionKey: String
@@ -31,8 +32,8 @@ public actor EmbeddedAgentRuntime {
 
     public func run(_ request: AgentRunRequest) async throws -> AgentRunResult {
         _ = try await self.gatewayClient.send(method: "agent.run", params: [
-            "sessionKey": request.sessionKey,
-            "prompt": request.prompt,
+            "sessionKey": AnyCodable(request.sessionKey),
+            "prompt": AnyCodable(request.prompt),
         ])
         return AgentRunResult(sessionKey: request.sessionKey, output: "OK")
     }
