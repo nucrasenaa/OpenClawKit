@@ -1,26 +1,110 @@
 // swift-tools-version: 6.2
-// The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
 
 let package = Package(
     name: "OpenClawKit",
+    platforms: [
+        .iOS(.v17),
+        .macOS(.v14),
+        .tvOS(.v17),
+        .watchOS(.v10),
+    ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
-        .library(
-            name: "OpenClawKit",
-            targets: ["OpenClawKit"]
-        ),
+        .library(name: "OpenClawProtocol", targets: ["OpenClawProtocol"]),
+        .library(name: "OpenClawCore", targets: ["OpenClawCore"]),
+        .library(name: "OpenClawGateway", targets: ["OpenClawGateway"]),
+        .library(name: "OpenClawAgents", targets: ["OpenClawAgents"]),
+        .library(name: "OpenClawPlugins", targets: ["OpenClawPlugins"]),
+        .library(name: "OpenClawChannels", targets: ["OpenClawChannels"]),
+        .library(name: "OpenClawMemory", targets: ["OpenClawMemory"]),
+        .library(name: "OpenClawMedia", targets: ["OpenClawMedia"]),
+        .library(name: "OpenClawKit", targets: ["OpenClawKit"]),
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "OpenClawKit"
+            name: "OpenClawProtocol",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawCore",
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawGateway",
+            dependencies: ["OpenClawProtocol", "OpenClawCore"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawAgents",
+            dependencies: ["OpenClawCore", "OpenClawGateway", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawPlugins",
+            dependencies: ["OpenClawCore", "OpenClawProtocol", "OpenClawGateway", "OpenClawAgents"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawChannels",
+            dependencies: ["OpenClawCore", "OpenClawProtocol", "OpenClawGateway", "OpenClawPlugins"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawMemory",
+            dependencies: ["OpenClawCore", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawMedia",
+            dependencies: ["OpenClawCore", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "OpenClawKit",
+            dependencies: [
+                "OpenClawProtocol",
+                "OpenClawCore",
+                "OpenClawGateway",
+                "OpenClawAgents",
+                "OpenClawPlugins",
+                "OpenClawChannels",
+                "OpenClawMemory",
+                "OpenClawMedia",
+            ],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
         ),
         .testTarget(
             name: "OpenClawKitTests",
-            dependencies: ["OpenClawKit"]
+            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableExperimentalFeature("SwiftTesting"),
+            ]
+        ),
+        .testTarget(
+            name: "OpenClawKitE2ETests",
+            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableExperimentalFeature("SwiftTesting"),
+            ]
         ),
     ]
 )
