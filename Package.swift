@@ -21,6 +21,9 @@ let package = Package(
         .library(name: "OpenClawMedia", targets: ["OpenClawMedia"]),
         .library(name: "OpenClawKit", targets: ["OpenClawKit"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.10.0"),
+    ],
     targets: [
         .target(
             name: "OpenClawProtocol",
@@ -30,6 +33,9 @@ let package = Package(
         ),
         .target(
             name: "OpenClawCore",
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto"),
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]
