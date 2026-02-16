@@ -103,6 +103,7 @@ public struct DiscordChannelConfig: Codable, Sendable, Equatable {
     public var defaultChannelID: String?
     public var pollIntervalMs: Int
     public var presenceEnabled: Bool
+    public var mentionOnly: Bool
 
     /// Creates Discord channel settings.
     /// - Parameters:
@@ -111,18 +112,51 @@ public struct DiscordChannelConfig: Codable, Sendable, Equatable {
     ///   - defaultChannelID: Default channel ID for polling/sends.
     ///   - pollIntervalMs: Poll interval in milliseconds.
     ///   - presenceEnabled: Enables Discord gateway presence lifecycle.
+    ///   - mentionOnly: Processes messages only when bot is explicitly mentioned.
     public init(
         enabled: Bool = false,
         botToken: String? = nil,
         defaultChannelID: String? = nil,
         pollIntervalMs: Int = 2_000,
-        presenceEnabled: Bool = true
+        presenceEnabled: Bool = true,
+        mentionOnly: Bool = true
     ) {
         self.enabled = enabled
         self.botToken = botToken
         self.defaultChannelID = defaultChannelID
         self.pollIntervalMs = max(250, pollIntervalMs)
         self.presenceEnabled = presenceEnabled
+        self.mentionOnly = mentionOnly
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case botToken
+        case defaultChannelID
+        case pollIntervalMs
+        case presenceEnabled
+        case mentionOnly
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.botToken = try container.decodeIfPresent(String.self, forKey: .botToken)
+        self.defaultChannelID = try container.decodeIfPresent(String.self, forKey: .defaultChannelID)
+        let pollInterval = try container.decodeIfPresent(Int.self, forKey: .pollIntervalMs) ?? 2_000
+        self.pollIntervalMs = max(250, pollInterval)
+        self.presenceEnabled = try container.decodeIfPresent(Bool.self, forKey: .presenceEnabled) ?? true
+        self.mentionOnly = try container.decodeIfPresent(Bool.self, forKey: .mentionOnly) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.enabled, forKey: .enabled)
+        try container.encodeIfPresent(self.botToken, forKey: .botToken)
+        try container.encodeIfPresent(self.defaultChannelID, forKey: .defaultChannelID)
+        try container.encode(self.pollIntervalMs, forKey: .pollIntervalMs)
+        try container.encode(self.presenceEnabled, forKey: .presenceEnabled)
+        try container.encode(self.mentionOnly, forKey: .mentionOnly)
     }
 }
 

@@ -66,6 +66,10 @@ struct DiscordChannelAdapterTests {
                 return HTTPResponseData(statusCode: self.postStatusCode, headers: [:], body: Data("{}".utf8))
             }
 
+            if record.path.contains("/reactions/"), record.method == "PUT" {
+                return HTTPResponseData(statusCode: 204, headers: [:], body: Data())
+            }
+
             return HTTPResponseData(statusCode: 404, headers: [:], body: Data())
         }
 
@@ -103,11 +107,11 @@ struct DiscordChannelAdapterTests {
     func pollsMessagesAndDeliversInboundUserText() async throws {
         let payload = Data("""
         [
-          {"id":"1","content":"hello from user","author":{"id":"user-1","bot":false}},
+          {"id":"1","content":"<@bot-id> hello from user","author":{"id":"user-1","bot":false},"mentions":[{"id":"bot-id","bot":true}]},
           {"id":"2","content":"ignore self","author":{"id":"bot-id","bot":true}}
         ]
         """.utf8)
-        let transport = MockDiscordTransport(messagesQueue: [payload, Data("[]".utf8)])
+        let transport = MockDiscordTransport(messagesQueue: [Data("[]".utf8), payload, Data("[]".utf8)])
         let collector = InboundCollector()
         let adapter = DiscordChannelAdapter(
             config: DiscordChannelConfig(
@@ -115,7 +119,8 @@ struct DiscordChannelAdapterTests {
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
                 pollIntervalMs: 250,
-                presenceEnabled: false
+                presenceEnabled: false,
+                mentionOnly: true
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -145,7 +150,8 @@ struct DiscordChannelAdapterTests {
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
                 pollIntervalMs: 250,
-                presenceEnabled: false
+                presenceEnabled: false,
+                mentionOnly: true
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -171,7 +177,8 @@ struct DiscordChannelAdapterTests {
                 botToken: "bad-token",
                 defaultChannelID: "channel-1",
                 pollIntervalMs: 250,
-                presenceEnabled: false
+                presenceEnabled: false,
+                mentionOnly: true
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -195,7 +202,8 @@ struct DiscordChannelAdapterTests {
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
                 pollIntervalMs: 250,
-                presenceEnabled: true
+                presenceEnabled: true,
+                mentionOnly: true
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!,
@@ -222,7 +230,8 @@ struct DiscordChannelAdapterTests {
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
                 pollIntervalMs: 250,
-                presenceEnabled: true
+                presenceEnabled: true,
+                mentionOnly: true
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!,
@@ -235,5 +244,110 @@ struct DiscordChannelAdapterTests {
         } catch {
             #expect(String(describing: error).lowercased().contains("presence"))
         }
+    }
+
+    @Test
+    func startupSkipsBacklogAndProcessesOnlyNewMentions() async throws {
+        let firstPoll = Data("""
+        [
+          {"id":"10","content":"<@bot-id> old mention","author":{"id":"user-1","bot":false},"mentions":[{"id":"bot-id","bot":true}]}
+        ]
+        """.utf8)
+        let secondPoll = Data("""
+        [
+          {"id":"10","content":"<@bot-id> old mention","author":{"id":"user-1","bot":false},"mentions":[{"id":"bot-id","bot":true}]},
+          {"id":"11","content":"<@bot-id> new mention","author":{"id":"user-2","bot":false},"mentions":[{"id":"bot-id","bot":true}]}
+        ]
+        """.utf8)
+
+        let transport = MockDiscordTransport(messagesQueue: [firstPoll, secondPoll, Data("[]".utf8)])
+        let collector = InboundCollector()
+        let adapter = DiscordChannelAdapter(
+            config: DiscordChannelConfig(
+                enabled: true,
+                botToken: "secret-token",
+                defaultChannelID: "channel-1",
+                pollIntervalMs: 250,
+                presenceEnabled: false,
+                mentionOnly: true
+            ),
+            transport: transport,
+            baseURL: URL(string: "https://discord.example/api/v10")!
+        )
+        await adapter.setInboundHandler { message in
+            await collector.append(message)
+        }
+
+        try await adapter.start()
+        try await Task.sleep(nanoseconds: 650_000_000)
+        await adapter.stop()
+
+        let received = await collector.snapshot()
+        #expect(received.count == 1)
+        #expect(received.first?.text.contains("new mention") == true)
+    }
+
+    @Test
+    func mentionOnlyModeIgnoresNonMentionMessages() async throws {
+        let secondPoll = Data("""
+        [
+          {"id":"21","content":"hello everyone","author":{"id":"user-1","bot":false},"mentions":[]},
+          {"id":"22","content":"<@bot-id> please respond","author":{"id":"user-2","bot":false},"mentions":[{"id":"bot-id","bot":true}]}
+        ]
+        """.utf8)
+        let transport = MockDiscordTransport(messagesQueue: [Data("[]".utf8), secondPoll, Data("[]".utf8)])
+        let collector = InboundCollector()
+        let adapter = DiscordChannelAdapter(
+            config: DiscordChannelConfig(
+                enabled: true,
+                botToken: "secret-token",
+                defaultChannelID: "channel-1",
+                pollIntervalMs: 250,
+                presenceEnabled: false,
+                mentionOnly: true
+            ),
+            transport: transport,
+            baseURL: URL(string: "https://discord.example/api/v10")!
+        )
+        await adapter.setInboundHandler { message in
+            await collector.append(message)
+        }
+
+        try await adapter.start()
+        try await Task.sleep(nanoseconds: 650_000_000)
+        await adapter.stop()
+
+        let received = await collector.snapshot()
+        #expect(received.count == 1)
+        #expect(received.first?.accountID == "user-2")
+    }
+
+    @Test
+    func mentionTriggerAddsEyesReaction() async throws {
+        let payload = Data("""
+        [
+          {"id":"31","content":"<@bot-id> wake up","author":{"id":"user-1","bot":false},"mentions":[{"id":"bot-id","bot":true}]}
+        ]
+        """.utf8)
+        let transport = MockDiscordTransport(messagesQueue: [Data("[]".utf8), payload, Data("[]".utf8)])
+        let adapter = DiscordChannelAdapter(
+            config: DiscordChannelConfig(
+                enabled: true,
+                botToken: "secret-token",
+                defaultChannelID: "channel-1",
+                pollIntervalMs: 250,
+                presenceEnabled: false,
+                mentionOnly: true
+            ),
+            transport: transport,
+            baseURL: URL(string: "https://discord.example/api/v10")!
+        )
+
+        try await adapter.start()
+        try await Task.sleep(nanoseconds: 650_000_000)
+        await adapter.stop()
+
+        let records = await transport.records()
+        #expect(records.contains(where: { $0.method == "PUT" && $0.path.contains("/reactions/") && $0.path.hasSuffix("/@me") }))
     }
 }

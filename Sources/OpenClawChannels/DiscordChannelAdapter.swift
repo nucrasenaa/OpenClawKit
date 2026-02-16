@@ -24,6 +24,7 @@ private struct DiscordMessage: Decodable {
     let id: String
     let content: String
     let author: DiscordAuthor
+    let mentions: [DiscordAuthor]?
 }
 
 /// Live Discord channel adapter backed by Discord REST polling APIs.
@@ -42,6 +43,7 @@ public actor DiscordChannelAdapter: ChannelAdapter {
     private var pollTask: Task<Void, Never>?
     private var botUserID: String?
     private var lastSeenMessageID: UInt64?
+    private var hasInitializedCursor = false
     private var presenceClient: (any DiscordPresenceClient)?
     private var inboundHandler: (@Sendable (InboundMessage) async -> Void)?
 
@@ -79,6 +81,8 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         if self.started {
             return
         }
+        self.lastSeenMessageID = nil
+        self.hasInitializedCursor = false
         let token = try self.resolveToken()
         let channelID = try self.resolveDefaultChannelID()
         self.botUserID = try await self.fetchCurrentUserID(token: token)
@@ -170,6 +174,15 @@ public actor DiscordChannelAdapter: ChannelAdapter {
 
         let messages = try JSONDecoder().decode([DiscordMessage].self, from: response.body)
             .sorted { (UInt64($0.id) ?? 0) < (UInt64($1.id) ?? 0) }
+        if !self.hasInitializedCursor {
+            self.hasInitializedCursor = true
+            if let newest = messages.last {
+                let latest = UInt64(newest.id) ?? 0
+                self.lastSeenMessageID = max(self.lastSeenMessageID ?? 0, latest)
+            }
+            return
+        }
+
         for message in messages {
             let messageID = UInt64(message.id) ?? 0
             if let lastSeen = self.lastSeenMessageID, messageID <= lastSeen {
@@ -179,9 +192,15 @@ public actor DiscordChannelAdapter: ChannelAdapter {
             if message.author.bot == true || message.author.id == self.botUserID {
                 continue
             }
-            let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if self.config.mentionOnly, !self.isMentioningBot(message) {
+                continue
+            }
+            let text = self.normalizedInboundText(from: message)
             guard !text.isEmpty else {
                 continue
+            }
+            if self.config.mentionOnly {
+                try? await self.sendEyesReaction(channelID: channelID, messageID: message.id, token: token)
             }
             let inbound = InboundMessage(
                 channel: .discord,
@@ -192,6 +211,40 @@ public actor DiscordChannelAdapter: ChannelAdapter {
             if let inboundHandler {
                 await inboundHandler(inbound)
             }
+        }
+    }
+
+    private func isMentioningBot(_ message: DiscordMessage) -> Bool {
+        guard let botUserID = self.botUserID else {
+            return false
+        }
+        if message.mentions?.contains(where: { $0.id == botUserID }) == true {
+            return true
+        }
+        return message.content.contains("<@\(botUserID)>") || message.content.contains("<@!\(botUserID)>")
+    }
+
+    private func normalizedInboundText(from message: DiscordMessage) -> String {
+        var text = message.content
+        if self.config.mentionOnly, let botUserID = self.botUserID {
+            text = text.replacingOccurrences(of: "<@\(botUserID)>", with: " ")
+            text = text.replacingOccurrences(of: "<@!\(botUserID)>", with: " ")
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func sendEyesReaction(channelID: String, messageID: String, token: String) async throws {
+        let encodedEmoji = "👀"
+        let endpoint = self.baseURL.appending(path: "channels/\(channelID)/messages/\(messageID)/reactions/\(encodedEmoji)/@me")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "PUT"
+        request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+        let response = try await self.transport.data(for: request)
+        if response.statusCode == 401 {
+            throw OpenClawCoreError.unavailable("Discord authentication failed")
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            throw OpenClawCoreError.unavailable("Discord reaction failed with status \(response.statusCode)")
         }
     }
 

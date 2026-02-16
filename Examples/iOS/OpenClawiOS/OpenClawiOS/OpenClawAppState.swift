@@ -117,7 +117,8 @@ final class OpenClawAppState: ObservableObject {
                     !self.discordChannelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 botToken: normalized(self.discordBotToken),
                 defaultChannelID: normalized(self.discordChannelID),
-                pollIntervalMs: 2_000
+                pollIntervalMs: 2_000,
+                mentionOnly: true
             )
             let openAIEnabled = !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
