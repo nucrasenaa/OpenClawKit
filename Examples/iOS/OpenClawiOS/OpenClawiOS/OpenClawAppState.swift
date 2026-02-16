@@ -119,14 +119,15 @@ final class OpenClawAppState: ObservableObject {
                 defaultChannelID: normalized(self.discordChannelID),
                 pollIntervalMs: 2_000
             )
+            let openAIEnabled = !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
             let config = OpenClawConfig(
                 agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: self.workspaceURL.path),
                 channels: ChannelsConfig(discord: discordConfig),
                 models: ModelsConfig(
-                    defaultProviderID: "echo",
+                    defaultProviderID: openAIEnabled ? OpenAIModelProvider.providerID : EchoModelProvider.defaultID,
                     openAI: OpenAIModelConfig(
-                        enabled: !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                        enabled: openAIEnabled,
                         apiKey: normalized(self.openAIAPIKey)
                     )
                 )
@@ -144,6 +145,12 @@ final class OpenClawAppState: ObservableObject {
             try await webchat.start()
 
             let runtime = EmbeddedAgentRuntime()
+            if openAIEnabled {
+                await runtime.registerModelProvider(
+                    OpenAIModelProvider(configuration: config.models.openAI)
+                )
+                try await runtime.setDefaultModelProviderID(OpenAIModelProvider.providerID)
+            }
             let replyEngine = AutoReplyEngine(
                 config: config,
                 sessionStore: sessionStore,

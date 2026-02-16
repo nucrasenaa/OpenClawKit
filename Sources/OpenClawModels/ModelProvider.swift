@@ -146,10 +146,13 @@ public actor ModelRouter {
             throw OpenClawCoreError.invalidConfiguration("Default model provider is not registered")
         }
 
+        let selectedProvider: any ModelProvider
         if let requestedID, !requestedID.isEmpty, let provider = self.providers[requestedID] {
-            return try await provider.generate(request)
+            selectedProvider = provider
+        } else {
+            selectedProvider = fallbackProvider
         }
 
-        return try await fallbackProvider.generate(request)
+        return try await selectedProvider.generate(request)
     }
 }
