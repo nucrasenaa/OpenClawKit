@@ -79,10 +79,12 @@ final class OpenClawAppState: ObservableObject {
     private let sessionsURL: URL
     private let messagesURL: URL
     private let settingsURL: URL
+    private let conversationMemoryURL: URL
 
     private var webchatAdapter: InMemoryChannelAdapter?
     private var discordAdapter: DiscordChannelAdapter?
     private var replyEngine: AutoReplyEngine?
+    private var conversationMemoryStore: ConversationMemoryStore?
     private var summaryTask: Task<Void, Never>?
 
     /// Creates and initializes app state from persisted local storage.
@@ -96,6 +98,7 @@ final class OpenClawAppState: ObservableObject {
         self.sessionsURL = self.stateRoot.appendingPathComponent("sessions.json")
         self.messagesURL = self.stateRoot.appendingPathComponent("chat-messages.json")
         self.settingsURL = self.stateRoot.appendingPathComponent("deploy-settings.json")
+        self.conversationMemoryURL = self.stateRoot.appendingPathComponent("conversation-memory.json")
 
         self.loadPersistedSettings()
         self.loadPersistedMessages()
@@ -139,6 +142,8 @@ final class OpenClawAppState: ObservableObject {
 
             let sessionStore = SessionStore(fileURL: self.sessionsURL)
             try await sessionStore.load()
+            let conversationMemoryStore = ConversationMemoryStore(fileURL: self.conversationMemoryURL)
+            try await conversationMemoryStore.load()
 
             let channelRegistry = ChannelRegistry()
             let webchat = InMemoryChannelAdapter(id: .webchat)
@@ -156,7 +161,8 @@ final class OpenClawAppState: ObservableObject {
                 config: config,
                 sessionStore: sessionStore,
                 channelRegistry: channelRegistry,
-                runtime: runtime
+                runtime: runtime,
+                conversationMemoryStore: conversationMemoryStore
             )
 
             if discordConfig.enabled {
@@ -173,6 +179,7 @@ final class OpenClawAppState: ObservableObject {
 
             self.webchatAdapter = webchat
             self.replyEngine = replyEngine
+            self.conversationMemoryStore = conversationMemoryStore
 
             await self.summaryScheduler.addOrUpdate(
                 CronJob(
@@ -213,6 +220,7 @@ final class OpenClawAppState: ObservableObject {
         self.discordAdapter = nil
         self.webchatAdapter = nil
         self.replyEngine = nil
+        self.conversationMemoryStore = nil
         self.deploymentState = .stopped
         self.statusText = "Deployment stopped."
     }

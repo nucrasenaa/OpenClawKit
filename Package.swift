@@ -92,6 +92,7 @@ let package = Package(
                 "OpenClawGateway",
                 "OpenClawPlugins",
                 "OpenClawAgents",
+                "OpenClawMemory",
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

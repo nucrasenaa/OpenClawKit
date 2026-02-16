@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Channels and auto-reply")
 struct ChannelAutoReplyTests {
+    struct PromptEchoProvider: ModelProvider {
+        let id = "prompt-echo"
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            ModelGenerationResponse(text: request.prompt, providerID: self.id, modelID: "prompt-echo")
+        }
+    }
+
     @Test
     func channelRegistryRoutesMessagesByChannelID() async throws {
         let registry = ChannelRegistry()
@@ -51,6 +59,52 @@ struct ChannelAutoReplyTests {
         let allSessions = await sessionStore.allRecords()
         #expect(allSessions.count == 1)
         #expect(allSessions.first?.key.contains("whatsapp") == true)
+    }
+
+    @Test
+    func autoReplyEngineInjectsPersistentConversationContext() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-memory-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let memoryPath = root.appendingPathComponent("conversation-memory.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let memoryStore = ConversationMemoryStore(fileURL: memoryPath)
+        try await sessionStore.load()
+        try await memoryStore.load()
+
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        await runtime.registerModelProvider(PromptEchoProvider())
+        try await runtime.setDefaultModelProviderID("prompt-echo")
+
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime,
+            conversationMemoryStore: memoryStore,
+            memoryContextLimit: 12
+        )
+
+        _ = try await engine.process(
+            InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "first question")
+        )
+        let second = try await engine.process(
+            InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "second question")
+        )
+
+        #expect(second.text.contains("## Conversation Memory Context"))
+        #expect(second.text.contains("[user] first question"))
+        #expect(second.text.contains("## New User Message"))
+        #expect(second.text.contains("second question"))
     }
 }
 

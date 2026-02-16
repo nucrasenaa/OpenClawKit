@@ -1,6 +1,7 @@
 import Foundation
 import OpenClawAgents
 import OpenClawCore
+import OpenClawMemory
 
 /// Stable channel identifiers supported by channel adapters.
 public enum ChannelID: String, CaseIterable, Sendable {
@@ -162,6 +163,8 @@ public actor AutoReplyEngine {
     private let sessionStore: SessionStore
     private let channelRegistry: ChannelRegistry
     private let runtime: EmbeddedAgentRuntime
+    private let conversationMemoryStore: ConversationMemoryStore?
+    private let memoryContextLimit: Int
 
     /// Creates an auto-reply engine.
     /// - Parameters:
@@ -169,16 +172,22 @@ public actor AutoReplyEngine {
     ///   - sessionStore: Session storage actor.
     ///   - channelRegistry: Adapter registry for outbound dispatch.
     ///   - runtime: Embedded runtime to execute prompts/tools.
+    ///   - conversationMemoryStore: Optional persistent conversation memory store.
+    ///   - memoryContextLimit: Number of turns included in prompt context.
     public init(
         config: OpenClawConfig,
         sessionStore: SessionStore,
         channelRegistry: ChannelRegistry,
-        runtime: EmbeddedAgentRuntime
+        runtime: EmbeddedAgentRuntime,
+        conversationMemoryStore: ConversationMemoryStore? = nil,
+        memoryContextLimit: Int = 12
     ) {
         self.config = config
         self.sessionStore = sessionStore
         self.channelRegistry = channelRegistry
         self.runtime = runtime
+        self.conversationMemoryStore = conversationMemoryStore
+        self.memoryContextLimit = max(1, memoryContextLimit)
     }
 
     /// Processes an inbound message and returns the outbound response.
@@ -207,10 +216,29 @@ public actor AutoReplyEngine {
         )
         try await self.sessionStore.save()
 
+        let memoryContext = await self.conversationMemoryStore?.formattedContext(
+            sessionKey: sessionKey,
+            limit: self.memoryContextLimit
+        ) ?? ""
+        if let store = self.conversationMemoryStore {
+            await store.appendUserTurn(
+                sessionKey: sessionKey,
+                channel: message.channel.rawValue,
+                accountID: message.accountID,
+                peerID: message.peerID,
+                text: message.text
+            )
+            try await store.save()
+        }
+        let runtimePrompt = Self.composeRuntimePrompt(
+            memoryContext: memoryContext,
+            inboundText: message.text
+        )
+
         let result = try await self.runtime.run(
             AgentRunRequest(
                 sessionKey: sessionKey,
-                prompt: message.text,
+                prompt: runtimePrompt,
                 workspaceRootPath: self.config.agents.workspaceRoot
             )
         )
@@ -221,8 +249,26 @@ public actor AutoReplyEngine {
             peerID: message.peerID,
             text: result.output
         )
+        if let store = self.conversationMemoryStore {
+            await store.appendAssistantTurn(
+                sessionKey: sessionKey,
+                channel: outbound.channel.rawValue,
+                accountID: outbound.accountID,
+                peerID: outbound.peerID,
+                text: outbound.text
+            )
+            try await store.save()
+        }
         try await self.channelRegistry.send(outbound)
         return outbound
+    }
+
+    private static func composeRuntimePrompt(memoryContext: String, inboundText: String) -> String {
+        let context = memoryContext.trimmingCharacters(in: .whitespacesAndNewlines)
+        if context.isEmpty {
+            return inboundText
+        }
+        return "\(context)\n\n## New User Message\n\(inboundText)"
     }
 }
 
