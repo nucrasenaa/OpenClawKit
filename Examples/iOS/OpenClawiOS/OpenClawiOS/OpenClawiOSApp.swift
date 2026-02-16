@@ -5,6 +5,7 @@
 //  Created by Marcus Arnett on 2/15/26.
 //
 
+import AppIntents
 import SwiftUI
 
 @main
