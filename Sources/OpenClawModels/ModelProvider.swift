@@ -93,10 +93,15 @@ public actor ModelRouter {
 
     public func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
         let requestedID = request.providerID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedID = (requestedID?.isEmpty == false) ? requestedID! : self.defaultProviderID
-        guard let provider = self.providers[resolvedID] else {
-            throw OpenClawCoreError.unavailable("No model provider registered for \(resolvedID)")
+        let fallbackProvider = self.providers[self.defaultProviderID]
+        guard let fallbackProvider else {
+            throw OpenClawCoreError.invalidConfiguration("Default model provider is not registered")
         }
-        return try await provider.generate(request)
+
+        if let requestedID, !requestedID.isEmpty, let provider = self.providers[requestedID] {
+            return try await provider.generate(request)
+        }
+
+        return try await fallbackProvider.generate(request)
     }
 }
