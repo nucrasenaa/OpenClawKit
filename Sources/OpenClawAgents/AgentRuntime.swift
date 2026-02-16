@@ -1,6 +1,7 @@
 import Foundation
 import OpenClawCore
 import OpenClawGateway
+import OpenClawModels
 import OpenClawProtocol
 
 public enum AgentRuntimeError: Error, LocalizedError, Sendable {
@@ -41,17 +42,20 @@ public struct AgentRunRequest: Sendable {
     public let sessionKey: String
     public let prompt: String
     public let toolCalls: [AgentToolCall]
+    public let modelProviderID: String?
 
     public init(
         runID: String = UUID().uuidString,
         sessionKey: String,
         prompt: String,
-        toolCalls: [AgentToolCall] = []
+        toolCalls: [AgentToolCall] = [],
+        modelProviderID: String? = nil
     ) {
         self.runID = runID
         self.sessionKey = sessionKey
         self.prompt = prompt
         self.toolCalls = toolCalls
+        self.modelProviderID = modelProviderID
     }
 }
 
@@ -80,17 +84,28 @@ public struct AgentRunResult: Sendable {
 public actor EmbeddedAgentRuntime {
     private let gatewayClient: GatewayClient
     private let toolRegistry: AgentToolRegistry
+    private let modelRouter: ModelRouter
 
     public init(
         gatewayClient: GatewayClient = GatewayClient(),
-        toolRegistry: AgentToolRegistry = AgentToolRegistry()
+        toolRegistry: AgentToolRegistry = AgentToolRegistry(),
+        modelRouter: ModelRouter = ModelRouter()
     ) {
         self.gatewayClient = gatewayClient
         self.toolRegistry = toolRegistry
+        self.modelRouter = modelRouter
     }
 
     public func registerTool(_ tool: any AgentTool) async {
         await self.toolRegistry.register(tool)
+    }
+
+    public func registerModelProvider(_ provider: any ModelProvider) async {
+        await self.modelRouter.register(provider)
+    }
+
+    public func setDefaultModelProviderID(_ id: String) async throws {
+        try await self.modelRouter.setDefaultProviderID(id)
     }
 
     public func run(_ request: AgentRunRequest, timeoutMs: Int = 30_000) async throws -> AgentRunResult {
@@ -98,7 +113,7 @@ public actor EmbeddedAgentRuntime {
         let timeoutNs = UInt64(max(0, timeoutMs)) * 1_000_000
 
         return try await withThrowingTaskGroup(of: AgentRunResult.self) { group in
-            group.addTask { [gatewayClient, toolRegistry] in
+            group.addTask { [gatewayClient, toolRegistry, modelRouter] in
                 var events: [AgentRunEvent] = [AgentRunEvent(runID: runID, kind: .runStarted)]
                 var toolResults: [AgentToolResult] = []
 
@@ -120,11 +135,19 @@ public actor EmbeddedAgentRuntime {
                     "prompt": AnyCodable(request.prompt),
                 ])
 
+                let modelResponse = try await modelRouter.generate(
+                    ModelGenerationRequest(
+                        sessionKey: request.sessionKey,
+                        prompt: request.prompt,
+                        providerID: request.modelProviderID
+                    )
+                )
+
                 events.append(AgentRunEvent(runID: runID, kind: .runCompleted))
                 return AgentRunResult(
                     runID: runID,
                     sessionKey: request.sessionKey,
-                    output: "OK",
+                    output: modelResponse.text,
                     toolResults: toolResults,
                     events: events
                 )

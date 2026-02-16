@@ -4,15 +4,18 @@ public struct OpenClawConfig: Codable, Sendable, Equatable {
     public var gateway: GatewayConfig
     public var agents: AgentsConfig
     public var routing: RoutingConfig
+    public var models: ModelsConfig
 
     public init(
         gateway: GatewayConfig = GatewayConfig(),
         agents: AgentsConfig = AgentsConfig(),
-        routing: RoutingConfig = RoutingConfig()
+        routing: RoutingConfig = RoutingConfig(),
+        models: ModelsConfig = ModelsConfig()
     ) {
         self.gateway = gateway
         self.agents = agents
         self.routing = routing
+        self.models = models
     }
 }
 
@@ -51,6 +54,76 @@ public struct RoutingConfig: Codable, Sendable, Equatable {
         self.defaultSessionKey = defaultSessionKey
         self.includeAccountID = includeAccountID
         self.includePeerID = includePeerID
+    }
+}
+
+public struct ModelsConfig: Codable, Sendable, Equatable {
+    public var defaultProviderID: String
+    public var systemPrompt: String?
+    public var openAI: OpenAIModelConfig
+    public var foundation: FoundationModelConfig
+    public var local: LocalModelConfig
+
+    public init(
+        defaultProviderID: String = "echo",
+        systemPrompt: String? = nil,
+        openAI: OpenAIModelConfig = OpenAIModelConfig(),
+        foundation: FoundationModelConfig = FoundationModelConfig(),
+        local: LocalModelConfig = LocalModelConfig()
+    ) {
+        self.defaultProviderID = defaultProviderID
+        self.systemPrompt = systemPrompt
+        self.openAI = openAI
+        self.foundation = foundation
+        self.local = local
+    }
+}
+
+public struct OpenAIModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var modelID: String
+    public var apiKey: String?
+    public var baseURL: String
+
+    public init(
+        enabled: Bool = false,
+        modelID: String = "gpt-4.1-mini",
+        apiKey: String? = nil,
+        baseURL: String = "https://api.openai.com/v1"
+    ) {
+        self.enabled = enabled
+        self.modelID = modelID
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+    }
+}
+
+public struct FoundationModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var preferredModelID: String?
+
+    public init(enabled: Bool = false, preferredModelID: String? = nil) {
+        self.enabled = enabled
+        self.preferredModelID = preferredModelID
+    }
+}
+
+public struct LocalModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var modelPath: String?
+    public var contextWindow: Int
+    public var temperature: Double
+
+    public init(
+        enabled: Bool = false,
+        modelPath: String? = nil,
+        contextWindow: Int = 4096,
+        temperature: Double = 0.7
+    ) {
+        self.enabled = enabled
+        self.modelPath = modelPath
+        self.contextWindow = contextWindow
+        self.temperature = temperature
     }
 }
 

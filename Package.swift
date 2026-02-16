@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "OpenClawChannels", targets: ["OpenClawChannels"]),
         .library(name: "OpenClawMemory", targets: ["OpenClawMemory"]),
         .library(name: "OpenClawMedia", targets: ["OpenClawMedia"]),
+        .library(name: "OpenClawModels", targets: ["OpenClawModels"]),
         .library(name: "OpenClawKit", targets: ["OpenClawKit"]),
     ],
     dependencies: [
@@ -49,8 +50,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OpenClawModels",
+            dependencies: ["OpenClawCore", "OpenClawProtocol"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
             name: "OpenClawAgents",
-            dependencies: ["OpenClawCore", "OpenClawGateway", "OpenClawProtocol"],
+            dependencies: ["OpenClawCore", "OpenClawGateway", "OpenClawProtocol", "OpenClawModels"],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]
@@ -100,6 +108,7 @@ let package = Package(
                 "OpenClawChannels",
                 "OpenClawMemory",
                 "OpenClawMedia",
+                "OpenClawModels",
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
@@ -107,14 +116,14 @@ let package = Package(
         ),
         .testTarget(
             name: "OpenClawKitTests",
-            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol"],
+            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol", "OpenClawModels"],
             swiftSettings: [
                 .enableExperimentalFeature("SwiftTesting"),
             ]
         ),
         .testTarget(
             name: "OpenClawKitE2ETests",
-            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol"],
+            dependencies: ["OpenClawKit", "OpenClawGateway", "OpenClawCore", "OpenClawProtocol", "OpenClawModels"],
             swiftSettings: [
                 .enableExperimentalFeature("SwiftTesting"),
             ]
