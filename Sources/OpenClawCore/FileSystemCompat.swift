@@ -2,7 +2,11 @@ import Foundation
 
 public enum OpenClawFileSystem {
     public static func resolveHomeDirectory() -> URL {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        #else
         FileManager.default.homeDirectoryForCurrentUser
+        #endif
     }
 
     public static func ensureDirectory(_ url: URL) throws {

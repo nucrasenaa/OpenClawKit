@@ -14,6 +14,7 @@ public struct ProcessResult: Sendable {
     }
 }
 
+#if os(macOS) || os(Linux)
 public actor ProcessRunner {
     public init() {}
 
@@ -45,4 +46,15 @@ public actor ProcessRunner {
         )
     }
 }
+#else
+public actor ProcessRunner {
+    public init() {}
+
+    public func run(_ command: [String], cwd: URL? = nil) throws -> ProcessResult {
+        _ = command
+        _ = cwd
+        throw OpenClawCoreError.unavailable("Process execution is unavailable on this platform")
+    }
+}
+#endif
 

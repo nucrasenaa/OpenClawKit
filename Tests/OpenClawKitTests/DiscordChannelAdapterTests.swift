@@ -105,7 +105,8 @@ struct DiscordChannelAdapterTests {
         let received = await collector.snapshot()
         #expect(received.count >= 1)
         #expect(received.first?.channel == .discord)
-        #expect(received.first?.peerID == "user-1")
+        #expect(received.first?.accountID == "user-1")
+        #expect(received.first?.peerID == "channel-1")
         #expect(received.first?.text == "hello from user")
     }
 

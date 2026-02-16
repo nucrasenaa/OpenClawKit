@@ -8,17 +8,25 @@
 import SwiftUI
 
 struct ContentView: View {
+    @EnvironmentObject private var appState: OpenClawAppState
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            DeployView()
+                .tabItem {
+                    Label("Deploy", systemImage: "antenna.radiowaves.left.and.right")
+                }
+
+            ChatView()
+                .tabItem {
+                    Label("Chat", systemImage: "message")
+                }
+                .badge(appState.isDeployed ? nil : "!")
         }
-        .padding()
     }
 }
 
 #Preview {
     ContentView()
+        .environmentObject(OpenClawAppState())
 }

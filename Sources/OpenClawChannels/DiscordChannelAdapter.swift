@@ -148,7 +148,12 @@ public actor DiscordChannelAdapter: ChannelAdapter {
             guard !text.isEmpty else {
                 continue
             }
-            let inbound = InboundMessage(channel: .discord, peerID: message.author.id, text: text)
+            let inbound = InboundMessage(
+                channel: .discord,
+                accountID: message.author.id,
+                peerID: channelID,
+                text: text
+            )
             if let inboundHandler {
                 await inboundHandler(inbound)
             }
