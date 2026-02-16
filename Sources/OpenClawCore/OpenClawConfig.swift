@@ -102,6 +102,7 @@ public struct DiscordChannelConfig: Codable, Sendable, Equatable {
     public var botToken: String?
     public var defaultChannelID: String?
     public var pollIntervalMs: Int
+    public var presenceEnabled: Bool
 
     /// Creates Discord channel settings.
     /// - Parameters:
@@ -109,16 +110,19 @@ public struct DiscordChannelConfig: Codable, Sendable, Equatable {
     ///   - botToken: Bot token used for API auth.
     ///   - defaultChannelID: Default channel ID for polling/sends.
     ///   - pollIntervalMs: Poll interval in milliseconds.
+    ///   - presenceEnabled: Enables Discord gateway presence lifecycle.
     public init(
         enabled: Bool = false,
         botToken: String? = nil,
         defaultChannelID: String? = nil,
-        pollIntervalMs: Int = 2_000
+        pollIntervalMs: Int = 2_000,
+        presenceEnabled: Bool = true
     ) {
         self.enabled = enabled
         self.botToken = botToken
         self.defaultChannelID = defaultChannelID
         self.pollIntervalMs = max(250, pollIntervalMs)
+        self.presenceEnabled = presenceEnabled
     }
 }
 

@@ -28,17 +28,21 @@ private struct DiscordMessage: Decodable {
 
 /// Live Discord channel adapter backed by Discord REST polling APIs.
 public actor DiscordChannelAdapter: ChannelAdapter {
+    public typealias PresenceFactory = @Sendable (_ token: String) -> any DiscordPresenceClient
+
     /// Adapter channel identifier.
     public let id: ChannelID = .discord
 
     private let config: DiscordChannelConfig
     private let transport: any DiscordHTTPTransport
     private let baseURL: URL
+    private let presenceFactory: PresenceFactory?
 
     private var started = false
     private var pollTask: Task<Void, Never>?
     private var botUserID: String?
     private var lastSeenMessageID: UInt64?
+    private var presenceClient: (any DiscordPresenceClient)?
     private var inboundHandler: (@Sendable (InboundMessage) async -> Void)?
 
     /// Creates a Discord channel adapter.
@@ -46,14 +50,19 @@ public actor DiscordChannelAdapter: ChannelAdapter {
     ///   - config: Discord channel configuration.
     ///   - transport: HTTP transport implementation.
     ///   - baseURL: Discord API base URL.
+    ///   - presenceFactory: Optional presence client factory.
     public init(
         config: DiscordChannelConfig,
         transport: any DiscordHTTPTransport = HTTPClient(),
-        baseURL: URL = URL(string: "https://discord.com/api/v10")!
+        baseURL: URL = URL(string: "https://discord.com/api/v10")!,
+        presenceFactory: PresenceFactory? = { token in
+            DiscordGatewayPresenceClient(token: token)
+        }
     ) {
         self.config = config
         self.transport = transport
         self.baseURL = baseURL
+        self.presenceFactory = presenceFactory
     }
 
     /// Sets an inbound handler invoked for polled user messages.
@@ -73,6 +82,11 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         let token = try self.resolveToken()
         let channelID = try self.resolveDefaultChannelID()
         self.botUserID = try await self.fetchCurrentUserID(token: token)
+        if self.config.presenceEnabled, let presenceFactory = self.presenceFactory {
+            let presence = presenceFactory(token)
+            try await presence.start()
+            self.presenceClient = presence
+        }
         self.started = true
 
         self.pollTask = Task { [weak self] in
@@ -85,6 +99,10 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         self.started = false
         self.pollTask?.cancel()
         self.pollTask = nil
+        if let presenceClient = self.presenceClient {
+            await presenceClient.stop()
+        }
+        self.presenceClient = nil
     }
 
     /// Sends an outbound message to a Discord channel.

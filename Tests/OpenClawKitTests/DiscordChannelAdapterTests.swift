@@ -74,6 +74,31 @@ struct DiscordChannelAdapterTests {
         }
     }
 
+    actor MockPresenceClient: DiscordPresenceClient {
+        private(set) var startCount = 0
+        private(set) var stopCount = 0
+        var failOnStart = false
+
+        func setFailOnStart(_ value: Bool) {
+            self.failOnStart = value
+        }
+
+        func start() async throws {
+            if self.failOnStart {
+                throw OpenClawCoreError.unavailable("presence start failed")
+            }
+            self.startCount += 1
+        }
+
+        func stop() async {
+            self.stopCount += 1
+        }
+
+        func snapshot() -> (startCount: Int, stopCount: Int) {
+            (self.startCount, self.stopCount)
+        }
+    }
+
     @Test
     func pollsMessagesAndDeliversInboundUserText() async throws {
         let payload = Data("""
@@ -89,7 +114,8 @@ struct DiscordChannelAdapterTests {
                 enabled: true,
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
-                pollIntervalMs: 250
+                pollIntervalMs: 250,
+                presenceEnabled: false
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -118,7 +144,8 @@ struct DiscordChannelAdapterTests {
                 enabled: true,
                 botToken: "secret-token",
                 defaultChannelID: "channel-1",
-                pollIntervalMs: 250
+                pollIntervalMs: 250,
+                presenceEnabled: false
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -143,7 +170,8 @@ struct DiscordChannelAdapterTests {
                 enabled: true,
                 botToken: "bad-token",
                 defaultChannelID: "channel-1",
-                pollIntervalMs: 250
+                pollIntervalMs: 250,
+                presenceEnabled: false
             ),
             transport: transport,
             baseURL: URL(string: "https://discord.example/api/v10")!
@@ -154,6 +182,58 @@ struct DiscordChannelAdapterTests {
             Issue.record("Expected auth failure")
         } catch {
             #expect(String(describing: error).lowercased().contains("authentication"))
+        }
+    }
+
+    @Test
+    func startsAndStopsPresenceClientWhenEnabled() async throws {
+        let transport = MockDiscordTransport(messagesQueue: [Data("[]".utf8)])
+        let presence = MockPresenceClient()
+        let adapter = DiscordChannelAdapter(
+            config: DiscordChannelConfig(
+                enabled: true,
+                botToken: "secret-token",
+                defaultChannelID: "channel-1",
+                pollIntervalMs: 250,
+                presenceEnabled: true
+            ),
+            transport: transport,
+            baseURL: URL(string: "https://discord.example/api/v10")!,
+            presenceFactory: { _ in presence }
+        )
+
+        try await adapter.start()
+        await adapter.stop()
+
+        let snapshot = await presence.snapshot()
+        #expect(snapshot.startCount == 1)
+        #expect(snapshot.stopCount == 1)
+    }
+
+    @Test
+    func startFailsWhenPresenceClientStartThrows() async throws {
+        let transport = MockDiscordTransport(messagesQueue: [Data("[]".utf8)])
+        let presence = MockPresenceClient()
+        await presence.setFailOnStart(true)
+
+        let adapter = DiscordChannelAdapter(
+            config: DiscordChannelConfig(
+                enabled: true,
+                botToken: "secret-token",
+                defaultChannelID: "channel-1",
+                pollIntervalMs: 250,
+                presenceEnabled: true
+            ),
+            transport: transport,
+            baseURL: URL(string: "https://discord.example/api/v10")!,
+            presenceFactory: { _ in presence }
+        )
+
+        do {
+            try await adapter.start()
+            Issue.record("Expected presence start failure")
+        } catch {
+            #expect(String(describing: error).lowercased().contains("presence"))
         }
     }
 }
