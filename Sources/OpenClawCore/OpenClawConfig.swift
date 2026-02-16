@@ -110,20 +110,29 @@ public struct FoundationModelConfig: Codable, Sendable, Equatable {
 
 public struct LocalModelConfig: Codable, Sendable, Equatable {
     public var enabled: Bool
+    public var runtime: String
     public var modelPath: String?
     public var contextWindow: Int
     public var temperature: Double
+    public var topP: Double
+    public var maxTokens: Int
 
     public init(
         enabled: Bool = false,
+        runtime: String = "llmfarm",
         modelPath: String? = nil,
         contextWindow: Int = 4096,
-        temperature: Double = 0.7
+        temperature: Double = 0.7,
+        topP: Double = 0.95,
+        maxTokens: Int = 512
     ) {
         self.enabled = enabled
+        self.runtime = runtime
         self.modelPath = modelPath
         self.contextWindow = contextWindow
         self.temperature = temperature
+        self.topP = topP
+        self.maxTokens = max(1, maxTokens)
     }
 }
 
