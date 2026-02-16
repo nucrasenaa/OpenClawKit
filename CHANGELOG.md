@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026.1.1.1 - 2026-02-15
+
+### Fixed
+
+- Discord deploy lifecycle now starts a gateway presence client so deployed bots
+  report online status and shut down presence cleanly when deployment stops.
+- Discord message handling now uses mention-only trigger policy with startup
+  backlog cursor initialization to prevent replay spam on deploy.
+- Discord mention triggers now acknowledge with an 👀 reaction before reply
+  processing begins.
+- Adapter conversation turns are now persisted in a file-backed conversation
+  memory store and reinjected into subsequent prompts for session-aware context.
+
+### Tests
+
+- Expanded Discord adapter coverage for presence lifecycle startup/teardown,
+  backlog skip behavior, mention-only filtering, and reaction acknowledgement.
+- Added conversation memory store persistence/context formatting tests and
+  auto-reply integration tests for prompt context injection.
+
 ## 2026.1.1 - 2026-02-15
 
 ### Added
