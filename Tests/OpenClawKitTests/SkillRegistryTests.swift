@@ -106,6 +106,14 @@ struct SkillRegistryTests {
         Always include WEATHER_MODE in your reasoning.
         """.write(to: workspaceSkill, atomically: true, encoding: .utf8)
 
+        try """
+        You are a calm assistant and should keep responses concise.
+        """.write(
+            to: root.appendingPathComponent("SOUL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
         let router = ModelRouter()
         await router.register(PromptEchoProvider())
         let runtime = EmbeddedAgentRuntime(modelRouter: router)
@@ -120,6 +128,8 @@ struct SkillRegistryTests {
         )
 
         #expect(result.output.contains("## Skills"))
+        #expect(result.output.contains("## Workspace Bootstrap Context"))
+        #expect(result.output.contains("You are a calm assistant"))
         #expect(result.output.contains("Always include WEATHER_MODE in your reasoning."))
         #expect(result.output.contains("## User Request"))
         #expect(result.output.contains("Forecast for today?"))

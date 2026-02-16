@@ -185,16 +185,25 @@ public actor EmbeddedAgentRuntime {
 
         let registry = SkillRegistry(workspaceRoot: URL(fileURLWithPath: trimmed))
         let snapshot = try await registry.loadPromptSnapshot()
+        let bootstrap = try await BootstrapContextLoader(
+            workspaceRoot: URL(fileURLWithPath: trimmed)
+        ).loadPromptSnapshot()
         let skillsPrompt = snapshot.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !skillsPrompt.isEmpty else {
+        let bootstrapPrompt = bootstrap.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        if skillsPrompt.isEmpty && bootstrapPrompt.isEmpty {
             return basePrompt
         }
 
-        return [
-            skillsPrompt,
-            "## User Request",
-            basePrompt,
-        ].joined(separator: "\n\n")
+        var sections: [String] = []
+        if !bootstrapPrompt.isEmpty {
+            sections.append(bootstrapPrompt)
+        }
+        if !skillsPrompt.isEmpty {
+            sections.append(skillsPrompt)
+        }
+        sections.append("## User Request")
+        sections.append(basePrompt)
+        return sections.joined(separator: "\n\n")
     }
 }
 
