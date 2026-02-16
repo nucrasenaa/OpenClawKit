@@ -80,6 +80,7 @@ final class OpenClawAppState: ObservableObject {
     private let messagesURL: URL
     private let settingsURL: URL
     private let conversationMemoryURL: URL
+    private let sharedConversationSessionKey = "shared"
 
     private var webchatAdapter: InMemoryChannelAdapter?
     private var discordAdapter: DiscordChannelAdapter?
@@ -128,6 +129,12 @@ final class OpenClawAppState: ObservableObject {
             let config = OpenClawConfig(
                 agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: self.workspaceURL.path),
                 channels: ChannelsConfig(discord: discordConfig),
+                routing: RoutingConfig(
+                    defaultSessionKey: self.sharedConversationSessionKey,
+                    includeChannelID: false,
+                    includeAccountID: false,
+                    includePeerID: false
+                ),
                 models: ModelsConfig(
                     defaultProviderID: openAIEnabled ? OpenAIModelProvider.providerID : EchoModelProvider.defaultID,
                     openAI: OpenAIModelConfig(
@@ -281,6 +288,16 @@ final class OpenClawAppState: ObservableObject {
             text: summary
         )
         await self.memoryIndex.upsert(document)
+        if let store = self.conversationMemoryStore {
+            await store.appendAssistantTurn(
+                sessionKey: self.sharedConversationSessionKey,
+                channel: "webchat",
+                accountID: nil,
+                peerID: "summary",
+                text: "Summary snapshot:\n\(summary)"
+            )
+            try? await store.save()
+        }
         self.latestSummary = summary
     }
 

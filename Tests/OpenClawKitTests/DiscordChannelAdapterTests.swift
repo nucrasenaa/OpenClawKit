@@ -70,6 +70,10 @@ struct DiscordChannelAdapterTests {
                 return HTTPResponseData(statusCode: 204, headers: [:], body: Data())
             }
 
+            if record.path.hasSuffix("/typing"), record.method == "POST" {
+                return HTTPResponseData(statusCode: 204, headers: [:], body: Data())
+            }
+
             return HTTPResponseData(statusCode: 404, headers: [:], body: Data())
         }
 
@@ -349,5 +353,6 @@ struct DiscordChannelAdapterTests {
 
         let records = await transport.records()
         #expect(records.contains(where: { $0.method == "PUT" && $0.path.contains("/reactions/") && $0.path.hasSuffix("/@me") }))
+        #expect(records.contains(where: { $0.method == "POST" && $0.path.hasSuffix("/typing") }))
     }
 }

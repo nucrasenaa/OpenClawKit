@@ -75,7 +75,7 @@ public enum SessionKeyResolver {
     ///   - config: Runtime configuration.
     /// - Returns: Sanitized derived session key.
     public static func derive(context: SessionRoutingContext, config: OpenClawConfig) -> String {
-        let cleanChannel = sanitize(context.channel)
+        let cleanChannel = config.routing.includeChannelID ? sanitizeOptional(context.channel) : nil
         let account = config.routing.includeAccountID ? sanitizeOptional(context.accountID) : nil
         let peer = config.routing.includePeerID ? sanitizeOptional(context.peerID) : nil
 

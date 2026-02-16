@@ -124,7 +124,6 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
-
         let response = try await self.transport.data(for: request)
         if response.statusCode == 401 {
             throw OpenClawCoreError.unavailable("Discord authentication failed")
@@ -202,6 +201,7 @@ public actor DiscordChannelAdapter: ChannelAdapter {
             if self.config.mentionOnly {
                 try? await self.sendEyesReaction(channelID: channelID, messageID: message.id, token: token)
             }
+            _ = try? await self.sendTypingIndicator(channelID: channelID, token: token)
             let inbound = InboundMessage(
                 channel: .discord,
                 accountID: message.author.id,
@@ -246,6 +246,18 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         guard (200..<300).contains(response.statusCode) else {
             throw OpenClawCoreError.unavailable("Discord reaction failed with status \(response.statusCode)")
         }
+    }
+
+    private func sendTypingIndicator(channelID: String, token: String) async throws -> Bool {
+        let endpoint = self.baseURL.appending(path: "channels/\(channelID)/typing")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("Bot \(token)", forHTTPHeaderField: "Authorization")
+        let response = try await self.transport.data(for: request)
+        if response.statusCode == 401 {
+            throw OpenClawCoreError.unavailable("Discord authentication failed")
+        }
+        return (200..<300).contains(response.statusCode)
     }
 
     private func fetchCurrentUserID(token: String) async throws -> String {

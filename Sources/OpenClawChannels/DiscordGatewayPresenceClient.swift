@@ -120,6 +120,7 @@ public actor DiscordGatewayPresenceClient: DiscordPresenceClient {
 
     /// Stops heartbeat/receive loops and closes gateway transport.
     public func stop() async {
+        _ = await self.sendPresenceUpdate(status: "invisible")
         self.started = false
         self.heartbeatTask?.cancel()
         self.heartbeatTask = nil
@@ -174,6 +175,33 @@ public actor DiscordGatewayPresenceClient: DiscordPresenceClient {
         let data = try JSONSerialization.data(withJSONObject: payload)
         let raw = String(decoding: data, as: UTF8.self)
         try await socket.send(text: raw)
+    }
+
+    private func sendPresenceUpdate(status: String) async -> Bool {
+        guard let socket = self.socket else {
+            return false
+        }
+        let payload: [String: Any] = [
+            "op": 3,
+            "d": [
+                "since": NSNull(),
+                "activities": [],
+                "status": status,
+                "afk": false,
+            ],
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let raw = String(data: data, encoding: .utf8)
+        else {
+            return false
+        }
+        do {
+            try await socket.send(text: raw)
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func startHeartbeatLoop() {

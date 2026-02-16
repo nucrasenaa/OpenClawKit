@@ -57,6 +57,24 @@ struct ConfigSessionRoutingTests {
     }
 
     @Test
+    func sessionKeyResolverCanUseSharedFallbackAcrossChannels() {
+        let config = OpenClawConfig(
+            routing: RoutingConfig(
+                defaultSessionKey: "shared",
+                includeChannelID: false,
+                includeAccountID: false,
+                includePeerID: false
+            )
+        )
+        let webchat = SessionRoutingContext(channel: "webchat", accountID: nil, peerID: "ios-local-user")
+        let discord = SessionRoutingContext(channel: "discord", accountID: "user-1", peerID: "channel-1")
+        let webchatKey = SessionKeyResolver.resolve(explicit: nil, context: webchat, config: config)
+        let discordKey = SessionKeyResolver.resolve(explicit: nil, context: discord, config: config)
+        #expect(webchatKey == "shared")
+        #expect(discordKey == "shared")
+    }
+
+    @Test
     func sessionStoreResolveOrCreateTracksRoute() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-session-tests", isDirectory: true)
