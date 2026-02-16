@@ -3,17 +3,20 @@ import Foundation
 public struct OpenClawConfig: Codable, Sendable, Equatable {
     public var gateway: GatewayConfig
     public var agents: AgentsConfig
+    public var channels: ChannelsConfig
     public var routing: RoutingConfig
     public var models: ModelsConfig
 
     public init(
         gateway: GatewayConfig = GatewayConfig(),
         agents: AgentsConfig = AgentsConfig(),
+        channels: ChannelsConfig = ChannelsConfig(),
         routing: RoutingConfig = RoutingConfig(),
         models: ModelsConfig = ModelsConfig()
     ) {
         self.gateway = gateway
         self.agents = agents
+        self.channels = channels
         self.routing = routing
         self.models = models
     }
@@ -54,6 +57,33 @@ public struct RoutingConfig: Codable, Sendable, Equatable {
         self.defaultSessionKey = defaultSessionKey
         self.includeAccountID = includeAccountID
         self.includePeerID = includePeerID
+    }
+}
+
+public struct ChannelsConfig: Codable, Sendable, Equatable {
+    public var discord: DiscordChannelConfig
+
+    public init(discord: DiscordChannelConfig = DiscordChannelConfig()) {
+        self.discord = discord
+    }
+}
+
+public struct DiscordChannelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var botToken: String?
+    public var defaultChannelID: String?
+    public var pollIntervalMs: Int
+
+    public init(
+        enabled: Bool = false,
+        botToken: String? = nil,
+        defaultChannelID: String? = nil,
+        pollIntervalMs: Int = 2_000
+    ) {
+        self.enabled = enabled
+        self.botToken = botToken
+        self.defaultChannelID = defaultChannelID
+        self.pollIntervalMs = max(250, pollIntervalMs)
     }
 }
 
