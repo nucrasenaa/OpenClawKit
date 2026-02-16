@@ -5,9 +5,13 @@ import Glibc
 import Darwin
 #endif
 
+/// Error thrown when attempting to bind to an occupied port.
 public struct PortInUseError: Error, LocalizedError, Sendable {
+    /// Port that failed availability check.
     public let port: Int
 
+    /// Creates a port-in-use error.
+    /// - Parameter port: Port that could not be bound.
     public init(port: Int) {
         self.port = port
     }
@@ -17,7 +21,10 @@ public struct PortInUseError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Utilities for checking local TCP port availability.
 public enum PortUtils {
+    /// Ensures a TCP port can be bound on the local host.
+    /// - Parameter port: Port to probe.
     public static func ensurePortAvailable(_ port: Int) throws {
         let fd = socket(AF_INET, Int32(SOCK_STREAM), 0)
         guard fd >= 0 else {

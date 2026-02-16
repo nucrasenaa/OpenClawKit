@@ -1,7 +1,11 @@
 import Foundation
 import OpenClawCore
 
+/// Minimal HTTP transport contract used by the Discord adapter.
 public protocol DiscordHTTPTransport: Sendable {
+    /// Executes an HTTP request and returns normalized response data.
+    /// - Parameter request: Configured URL request.
+    /// - Returns: Normalized response payload.
     func data(for request: URLRequest) async throws -> HTTPResponseData
 }
 
@@ -22,7 +26,9 @@ private struct DiscordMessage: Decodable {
     let author: DiscordAuthor
 }
 
+/// Live Discord channel adapter backed by Discord REST polling APIs.
 public actor DiscordChannelAdapter: ChannelAdapter {
+    /// Adapter channel identifier.
     public let id: ChannelID = .discord
 
     private let config: DiscordChannelConfig
@@ -35,6 +41,11 @@ public actor DiscordChannelAdapter: ChannelAdapter {
     private var lastSeenMessageID: UInt64?
     private var inboundHandler: (@Sendable (InboundMessage) async -> Void)?
 
+    /// Creates a Discord channel adapter.
+    /// - Parameters:
+    ///   - config: Discord channel configuration.
+    ///   - transport: HTTP transport implementation.
+    ///   - baseURL: Discord API base URL.
     public init(
         config: DiscordChannelConfig,
         transport: any DiscordHTTPTransport = HTTPClient(),
@@ -45,10 +56,13 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         self.baseURL = baseURL
     }
 
+    /// Sets an inbound handler invoked for polled user messages.
+    /// - Parameter handler: Optional async inbound handler closure.
     public func setInboundHandler(_ handler: (@Sendable (InboundMessage) async -> Void)?) {
         self.inboundHandler = handler
     }
 
+    /// Starts adapter lifecycle and begins polling configured Discord channel.
     public func start() async throws {
         guard self.config.enabled else {
             throw OpenClawCoreError.unavailable("Discord channel is disabled")
@@ -66,12 +80,15 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         }
     }
 
+    /// Stops adapter lifecycle and cancels background polling.
     public func stop() async {
         self.started = false
         self.pollTask?.cancel()
         self.pollTask = nil
     }
 
+    /// Sends an outbound message to a Discord channel.
+    /// - Parameter message: Outbound message payload.
     public func send(_ message: OutboundMessage) async throws {
         guard self.started else {
             throw OpenClawCoreError.unavailable("Discord adapter is not started")

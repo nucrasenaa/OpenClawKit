@@ -1,8 +1,12 @@
 import Foundation
 
+/// Type-erased `Codable` wrapper restricted to Sendable JSON-compatible values.
 public struct AnyCodable: Codable, Sendable, Equatable {
+    /// Wrapped type-erased value.
     public let value: AnySendableValue
 
+    /// Creates a wrapper from a Sendable value.
+    /// - Parameter value: Value to wrap.
     public init(_ value: some Sendable) {
         self.value = AnySendableValue(value)
     }
@@ -28,6 +32,8 @@ public struct AnyCodable: Codable, Sendable, Equatable {
         }
     }
 
+    /// Encodes wrapped value to a single-value container.
+    /// - Parameter encoder: Target encoder.
     public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self.value {
@@ -49,6 +55,7 @@ public struct AnyCodable: Codable, Sendable, Equatable {
     }
 }
 
+/// Internal representation for type-erased JSON values.
 public enum AnySendableValue: Sendable, Equatable {
     case null
     case bool(Bool)
@@ -58,6 +65,8 @@ public enum AnySendableValue: Sendable, Equatable {
     case object([String: AnyCodable])
     case array([AnyCodable])
 
+    /// Creates a type-erased value from common Sendable primitives.
+    /// - Parameter value: Input value.
     public init(_ value: some Sendable) {
         switch value {
         case let v as Bool:

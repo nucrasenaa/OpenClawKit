@@ -3,8 +3,10 @@ import OpenClawKit
 import Combine
 import SwiftUI
 
+/// Observable app state coordinating deployment and chat flows in the iOS example.
 @MainActor
 final class OpenClawAppState: ObservableObject {
+    /// Deployment lifecycle states for the sample app.
     enum DeploymentState: String, Sendable {
         case stopped
         case starting
@@ -13,18 +15,26 @@ final class OpenClawAppState: ObservableObject {
         case failed
     }
 
+    /// Message role labels rendered by the sample chat timeline.
     enum MessageRole: String, Codable, Sendable {
         case user
         case assistant
         case system
     }
 
+    /// Persisted chat message model used by local transcript storage.
     struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
         let id: UUID
         let role: MessageRole
         let text: String
         let createdAt: Date
 
+        /// Creates a chat message.
+        /// - Parameters:
+        ///   - id: Stable message identifier.
+        ///   - role: Message role label.
+        ///   - text: Message text.
+        ///   - createdAt: Creation timestamp.
         init(id: UUID = UUID(), role: MessageRole, text: String, createdAt: Date = Date()) {
             self.id = id
             self.role = role
@@ -33,6 +43,7 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Persisted deployment settings loaded/saved between launches.
     struct PersistedSettings: Codable, Sendable {
         var discordBotToken: String
         var discordChannelID: String
@@ -51,6 +62,7 @@ final class OpenClawAppState: ObservableObject {
     @Published private(set) var messages: [ChatMessage] = []
     @Published private(set) var latestSummary: String = ""
 
+    /// Returns whether runtime deployment is actively running.
     var isDeployed: Bool {
         self.deploymentState == .running
     }
@@ -73,6 +85,7 @@ final class OpenClawAppState: ObservableObject {
     private var replyEngine: AutoReplyEngine?
     private var summaryTask: Task<Void, Never>?
 
+    /// Creates and initializes app state from persisted local storage.
     init() {
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ??
@@ -88,6 +101,7 @@ final class OpenClawAppState: ObservableObject {
         self.loadPersistedMessages()
     }
 
+    /// Starts runtime deployment using current credentials and settings.
     func deploy() async {
         guard self.deploymentState != .starting, self.deploymentState != .running else { return }
         self.deploymentState = .starting
@@ -172,6 +186,7 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Stops deployment and tears down adapter/runtime resources.
     func stopDeployment() async {
         guard self.deploymentState == .running || self.deploymentState == .failed else { return }
         self.deploymentState = .stopping
@@ -194,6 +209,7 @@ final class OpenClawAppState: ObservableObject {
         self.statusText = "Deployment stopped."
     }
 
+    /// Sends the currently drafted message if non-empty.
     func sendPendingMessage() async {
         let text = self.pendingMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
@@ -201,6 +217,8 @@ final class OpenClawAppState: ObservableObject {
         await self.sendMessage(text)
     }
 
+    /// Sends a chat message through the active auto-reply engine.
+    /// - Parameter text: User input message text.
     func sendMessage(_ text: String) async {
         guard let replyEngine, self.deploymentState == .running else {
             self.statusText = "Deploy the agent before sending messages."
@@ -218,6 +236,7 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Starts background summary scheduler polling loop.
     private func startSummaryLoop() {
         self.summaryTask?.cancel()
         self.summaryTask = Task { [weak self] in
@@ -232,6 +251,7 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Summarizes recent transcript entries into memory index state.
     private func summarizeChatMemory() async {
         let recent = self.messages.suffix(20)
         guard !recent.isEmpty else { return }
@@ -248,11 +268,14 @@ final class OpenClawAppState: ObservableObject {
         self.latestSummary = summary
     }
 
+    /// Appends a message to timeline and persists transcript.
+    /// - Parameter message: Message to append.
     private func appendMessage(_ message: ChatMessage) {
         self.messages.append(message)
         self.persistMessages()
     }
 
+    /// Loads persisted transcript messages from disk.
     private func loadPersistedMessages() {
         guard let data = try? Data(contentsOf: self.messagesURL),
               let decoded = try? self.decoder.decode([ChatMessage].self, from: data)
@@ -262,6 +285,7 @@ final class OpenClawAppState: ObservableObject {
         self.messages = decoded
     }
 
+    /// Persists transcript messages to local storage.
     private func persistMessages() {
         do {
             let data = try self.encoder.encode(self.messages)
@@ -271,6 +295,7 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Loads persisted deployment settings from disk.
     private func loadPersistedSettings() {
         guard let data = try? Data(contentsOf: self.settingsURL),
               let settings = try? self.decoder.decode(PersistedSettings.self, from: data)
@@ -283,6 +308,7 @@ final class OpenClawAppState: ObservableObject {
         self.personality = settings.personality
     }
 
+    /// Persists deployment settings to local storage.
     private func persistSettings() throws {
         let settings = PersistedSettings(
             discordBotToken: self.discordBotToken,
@@ -294,6 +320,7 @@ final class OpenClawAppState: ObservableObject {
         try data.write(to: self.settingsURL, options: [.atomic])
     }
 
+    /// Persists personality text as workspace bootstrap context.
     private func persistBootstrapFiles() throws {
         try FileManager.default.createDirectory(at: self.workspaceURL, withIntermediateDirectories: true)
         let soulURL = self.workspaceURL.appendingPathComponent("SOUL.md")
@@ -308,6 +335,7 @@ final class OpenClawAppState: ObservableObject {
     }
 }
 
+/// Returns a trimmed value or `nil` when empty.
 private func normalized(_ value: String) -> String? {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed

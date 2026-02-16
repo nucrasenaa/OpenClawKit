@@ -8,6 +8,7 @@
 import AppIntents
 import SwiftUI
 
+/// Entry point for the OpenClaw iOS sample application.
 @main
 struct OpenClawiOSApp: App {
     @StateObject private var appState = OpenClawAppState()

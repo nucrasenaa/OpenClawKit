@@ -5,23 +5,38 @@ import OpenClawCore
 import JavaScriptCore
 #endif
 
+/// Result payload from JavaScript skill execution.
 public struct JSSkillExecutionResult: Sendable, Equatable {
+    /// Return value converted to string.
     public let output: String
+    /// Collected logs emitted by the script via `log(...)`.
     public let logs: [String]
 
+    /// Creates a JS skill execution result.
+    /// - Parameters:
+    ///   - output: Return value converted to string.
+    ///   - logs: Captured logs.
     public init(output: String, logs: [String]) {
         self.output = output
         self.logs = logs
     }
 }
 
+/// JavaScriptCore-based executor for workspace-scoped skill scripts.
 public actor JSSkillExecutor {
     private let pathGuard: WorkspacePathGuard
 
+    /// Creates a JavaScript skill executor.
+    /// - Parameter workspaceRoot: Workspace root used for path-jail enforcement.
     public init(workspaceRoot: URL) throws {
         self.pathGuard = try WorkspacePathGuard(workspaceRoot: workspaceRoot)
     }
 
+    /// Executes JavaScript inside a restricted host API surface.
+    /// - Parameters:
+    ///   - script: JavaScript body to execute.
+    ///   - input: Optional input payload exposed as `input`.
+    /// - Returns: Script output and captured logs.
     public func execute(script: String, input: String = "") throws -> JSSkillExecutionResult {
         #if canImport(JavaScriptCore)
         guard let context = JSContext() else {

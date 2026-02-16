@@ -5,30 +5,49 @@ import FoundationNetworking
 import OpenClawCore
 import OpenClawProtocol
 
+/// Gateway endpoint definition.
 public struct GatewayEndpoint: Sendable, Equatable {
+    /// Endpoint URL.
     public let url: URL
+    /// Optional TLS leaf fingerprint expected from remote.
     public let serverFingerprint: String?
 
+    /// Creates a gateway endpoint.
+    /// - Parameters:
+    ///   - url: Gateway URL.
+    ///   - serverFingerprint: Optional TLS fingerprint for pinning checks.
     public init(url: URL, serverFingerprint: String? = nil) {
         self.url = url
         self.serverFingerprint = serverFingerprint
     }
 }
 
+/// TLS validation settings used by the gateway client.
 public struct GatewayTLSSettings: Sendable {
+    /// Optional required fingerprint value.
     public let expectedFingerprint: String?
+    /// Whether TLS fingerprint validation is required when expected fingerprint is absent.
     public let required: Bool
 
+    /// Creates TLS settings.
+    /// - Parameters:
+    ///   - expectedFingerprint: Expected fingerprint value.
+    ///   - required: Whether fingerprint is mandatory.
     public init(expectedFingerprint: String? = nil, required: Bool = false) {
         self.expectedFingerprint = expectedFingerprint
         self.required = required
     }
 }
 
+/// Errors surfaced by gateway transport operations.
 public enum GatewayTransportError: Error, LocalizedError, Sendable {
+    /// Socket is not currently connected.
     case notConnected
+    /// Request exceeded its timeout.
     case requestTimeout(requestID: String)
+    /// Received frame did not decode/validate.
     case invalidFrame(String)
+    /// TLS fingerprint validation failed.
     case tlsFingerprintMismatch
 
     public var errorDescription: String? {
@@ -45,8 +64,11 @@ public enum GatewayTransportError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Actor-backed gateway client with reconnect and request/response tracking.
 public actor GatewayClient {
+    /// Factory used to create new socket instances.
     public typealias SocketFactory = @Sendable () -> any GatewaySocket
+    /// Event callback for inbound event frames.
     public typealias EventHandler = @Sendable (EventFrame) async -> Void
 
     private let socketFactory: SocketFactory
@@ -67,6 +89,13 @@ public actor GatewayClient {
     private var reconnectBackoffMs: UInt64 = 500
     private var pending: [String: CheckedContinuation<ResponseFrame, Error>] = [:]
 
+    /// Creates a gateway client.
+    /// - Parameters:
+    ///   - socketFactory: Socket factory closure.
+    ///   - tls: TLS pinning settings.
+    ///   - tickIntervalMs: Tick interval in milliseconds.
+    ///   - initialReconnectBackoffMs: Initial reconnect delay in milliseconds.
+    ///   - onEvent: Optional event callback.
     public init(
         socketFactory: @escaping SocketFactory = { LoopbackGatewaySocket() },
         tls: GatewayTLSSettings = GatewayTLSSettings(),
@@ -82,12 +111,15 @@ public actor GatewayClient {
         self.reconnectBackoffMs = max(10, initialReconnectBackoffMs)
     }
 
+    /// Connects to a gateway endpoint and starts receive/watchdog loops.
+    /// - Parameter endpoint: Gateway endpoint.
     public func connect(to endpoint: GatewayEndpoint) async throws {
         self.endpoint = endpoint
         self.shouldReconnect = true
         try await self.establishConnection()
     }
 
+    /// Disconnects and cancels all background gateway tasks.
     public func disconnect() async {
         self.shouldReconnect = false
         self.reconnectTask?.cancel()
@@ -105,10 +137,18 @@ public actor GatewayClient {
         self.endpoint = nil
     }
 
+    /// Returns current connection state.
+    /// - Returns: `true` when connected.
     public func isConnected() -> Bool {
         self.connected
     }
 
+    /// Sends a request frame and awaits response with timeout.
+    /// - Parameters:
+    ///   - method: Gateway method name.
+    ///   - params: Request parameters.
+    ///   - timeoutMs: Timeout in milliseconds.
+    /// - Returns: Decoded response frame.
     public func send(
         method: String,
         params: [String: AnyCodable] = [:],

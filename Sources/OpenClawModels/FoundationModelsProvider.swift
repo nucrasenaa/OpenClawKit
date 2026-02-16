@@ -5,14 +5,22 @@ import OpenClawCore
 import FoundationModels
 #endif
 
+/// Model provider backed by Apple Foundation Models APIs when available.
 public struct FoundationModelsProvider: ModelProvider {
+    /// Canonical provider identifier.
     public static let providerID = "foundation"
+    /// Provider identifier.
     public let id: String
 
+    /// Creates a Foundation Models provider.
+    /// - Parameter id: Provider identifier.
     public init(id: String = FoundationModelsProvider.providerID) {
         self.id = id
     }
 
+    /// Generates a response using Foundation Models where supported.
+    /// - Parameter request: Generation request payload.
+    /// - Returns: Generation response payload.
     public func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, tvOS 26.0, watchOS 26.0, *) {

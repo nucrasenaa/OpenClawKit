@@ -7,6 +7,7 @@
 
 import SwiftUI
 
+/// Root sample view that hosts deploy and chat flows.
 struct ContentView: View {
     @EnvironmentObject private var appState: OpenClawAppState
 

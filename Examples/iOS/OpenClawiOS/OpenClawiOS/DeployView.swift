@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Deployment control panel for credentials, personality, and lifecycle actions.
 struct DeployView: View {
     @EnvironmentObject private var appState: OpenClawAppState
 

@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// Chat interface for interacting with the deployed agent instance.
 struct ChatView: View {
     @EnvironmentObject private var appState: OpenClawAppState
 
@@ -63,6 +64,7 @@ struct ChatView: View {
     }
 }
 
+/// iMessage-style bubble used by the sample chat timeline.
 private struct ChatBubble: View {
     let message: OpenClawAppState.ChatMessage
 

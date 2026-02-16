@@ -1,12 +1,19 @@
 import Foundation
 import OpenClawCore
 
+/// Actor that discovers, parses, and merges workspace skill definitions.
 public actor SkillRegistry {
     private let workspaceRoot: URL
     private let extraSkillDirs: [URL]
     private let managedSkillsRoot: URL
     private let bundledSkillsRoot: URL?
 
+    /// Creates a skill registry.
+    /// - Parameters:
+    ///   - workspaceRoot: Workspace root URL.
+    ///   - extraSkillDirs: Optional extra search directories with highest precedence.
+    ///   - managedSkillsRoot: Optional managed skill root override.
+    ///   - bundledSkillsRoot: Optional bundled skill root override.
     public init(
         workspaceRoot: URL,
         extraSkillDirs: [URL] = [],
@@ -22,6 +29,8 @@ public actor SkillRegistry {
         self.bundledSkillsRoot = bundledSkillsRoot
     }
 
+    /// Loads and merges skills according to source precedence rules.
+    /// - Returns: Sorted merged skill definitions.
     public func loadSkills() throws -> [SkillDefinition] {
         var merged: [String: SkillDefinition] = [:]
 
@@ -36,6 +45,8 @@ public actor SkillRegistry {
         return merged.values.sorted { $0.name < $1.name }
     }
 
+    /// Loads a prompt snapshot for model prompt assembly.
+    /// - Returns: Prompt snapshot containing composed text and loaded skills.
     public func loadPromptSnapshot() throws -> SkillPromptSnapshot {
         let skills = try loadSkills()
         let promptEligible = skills.filter { !$0.invocation.disableModelInvocation }
