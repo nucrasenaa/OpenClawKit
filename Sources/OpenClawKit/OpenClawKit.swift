@@ -7,6 +7,7 @@
 @_exported import OpenClawModels
 @_exported import OpenClawPlugins
 @_exported import OpenClawProtocol
+@_exported import OpenClawSkills
 import Foundation
 
 public struct OpenClawSDK: Sendable {

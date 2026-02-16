@@ -3,6 +3,7 @@ import OpenClawCore
 import OpenClawGateway
 import OpenClawModels
 import OpenClawProtocol
+import OpenClawSkills
 
 public enum AgentRuntimeError: Error, LocalizedError, Sendable {
     case toolNotFound(String)
@@ -43,19 +44,22 @@ public struct AgentRunRequest: Sendable {
     public let prompt: String
     public let toolCalls: [AgentToolCall]
     public let modelProviderID: String?
+    public let workspaceRootPath: String?
 
     public init(
         runID: String = UUID().uuidString,
         sessionKey: String,
         prompt: String,
         toolCalls: [AgentToolCall] = [],
-        modelProviderID: String? = nil
+        modelProviderID: String? = nil,
+        workspaceRootPath: String? = nil
     ) {
         self.runID = runID
         self.sessionKey = sessionKey
         self.prompt = prompt
         self.toolCalls = toolCalls
         self.modelProviderID = modelProviderID
+        self.workspaceRootPath = workspaceRootPath
     }
 }
 
@@ -116,6 +120,10 @@ public actor EmbeddedAgentRuntime {
             group.addTask { [gatewayClient, toolRegistry, modelRouter] in
                 var events: [AgentRunEvent] = [AgentRunEvent(runID: runID, kind: .runStarted)]
                 var toolResults: [AgentToolResult] = []
+                let composedPrompt = try await Self.composePrompt(
+                    basePrompt: request.prompt,
+                    workspaceRootPath: request.workspaceRootPath
+                )
 
                 if await gatewayClient.isConnected() == false {
                     try await gatewayClient.connect(
@@ -132,13 +140,13 @@ public actor EmbeddedAgentRuntime {
 
                 _ = try await gatewayClient.send(method: "agent.run", params: [
                     "sessionKey": AnyCodable(request.sessionKey),
-                    "prompt": AnyCodable(request.prompt),
+                    "prompt": AnyCodable(composedPrompt),
                 ])
 
                 let modelResponse = try await modelRouter.generate(
                     ModelGenerationRequest(
                         sessionKey: request.sessionKey,
-                        prompt: request.prompt,
+                        prompt: composedPrompt,
                         providerID: request.modelProviderID
                     )
                 )
@@ -164,6 +172,29 @@ public actor EmbeddedAgentRuntime {
             group.cancelAll()
             return result
         }
+    }
+
+    private static func composePrompt(basePrompt: String, workspaceRootPath: String?) async throws -> String {
+        guard let workspaceRootPath else {
+            return basePrompt
+        }
+        let trimmed = workspaceRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return basePrompt
+        }
+
+        let registry = SkillRegistry(workspaceRoot: URL(fileURLWithPath: trimmed))
+        let snapshot = try await registry.loadPromptSnapshot()
+        let skillsPrompt = snapshot.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !skillsPrompt.isEmpty else {
+            return basePrompt
+        }
+
+        return [
+            skillsPrompt,
+            "## User Request",
+            basePrompt,
+        ].joined(separator: "\n\n")
     }
 }
 

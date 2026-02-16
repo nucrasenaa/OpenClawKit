@@ -20,6 +20,7 @@ let package = Package(
         .library(name: "OpenClawMemory", targets: ["OpenClawMemory"]),
         .library(name: "OpenClawMedia", targets: ["OpenClawMedia"]),
         .library(name: "OpenClawModels", targets: ["OpenClawModels"]),
+        .library(name: "OpenClawSkills", targets: ["OpenClawSkills"]),
         .library(name: "OpenClawKit", targets: ["OpenClawKit"]),
     ],
     dependencies: [
@@ -57,8 +58,21 @@ let package = Package(
             ]
         ),
         .target(
+            name: "OpenClawSkills",
+            dependencies: ["OpenClawCore"],
+            swiftSettings: [
+                .enableUpcomingFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
             name: "OpenClawAgents",
-            dependencies: ["OpenClawCore", "OpenClawGateway", "OpenClawProtocol", "OpenClawModels"],
+            dependencies: [
+                "OpenClawCore",
+                "OpenClawGateway",
+                "OpenClawProtocol",
+                "OpenClawModels",
+                "OpenClawSkills",
+            ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),
             ]
@@ -109,6 +123,7 @@ let package = Package(
                 "OpenClawMemory",
                 "OpenClawMedia",
                 "OpenClawModels",
+                "OpenClawSkills",
             ],
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

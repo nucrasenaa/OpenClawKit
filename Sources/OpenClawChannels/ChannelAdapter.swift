@@ -156,7 +156,8 @@ public actor AutoReplyEngine {
         let result = try await self.runtime.run(
             AgentRunRequest(
                 sessionKey: sessionKey,
-                prompt: message.text
+                prompt: message.text,
+                workspaceRootPath: self.config.agents.workspaceRoot
             )
         )
 

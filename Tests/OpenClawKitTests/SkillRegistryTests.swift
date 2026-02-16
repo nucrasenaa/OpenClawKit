@@ -1,0 +1,127 @@
+import Foundation
+import Testing
+@testable import OpenClawKit
+
+@Suite("Skill registry")
+struct SkillRegistryTests {
+    struct PromptEchoProvider: ModelProvider {
+        let id = "prompt-echo"
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            ModelGenerationResponse(text: request.prompt, providerID: self.id, modelID: "prompt-echo")
+        }
+    }
+
+    @Test
+    func workspaceSkillsOverrideProjectSkillsAndPromptFiltersDisabledSkills() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let projectSkill = root
+            .appendingPathComponent(".agents")
+            .appendingPathComponent("skills")
+            .appendingPathComponent("my-skill")
+            .appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(
+            at: projectSkill.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        ---
+        name: my-skill
+        description: project skill
+        ---
+
+        Project instructions.
+        """.write(to: projectSkill, atomically: true, encoding: .utf8)
+
+        let workspaceSkill = root
+            .appendingPathComponent("skills")
+            .appendingPathComponent("my-skill")
+            .appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(
+            at: workspaceSkill.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        ---
+        name: my-skill
+        description: workspace skill
+        ---
+
+        Workspace instructions.
+        """.write(to: workspaceSkill, atomically: true, encoding: .utf8)
+
+        let hiddenSkill = root
+            .appendingPathComponent("skills")
+            .appendingPathComponent("hidden")
+            .appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(
+            at: hiddenSkill.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        ---
+        name: hidden
+        description: hidden skill
+        disable-model-invocation: true
+        ---
+
+        Do not expose to prompt.
+        """.write(to: hiddenSkill, atomically: true, encoding: .utf8)
+
+        let registry = SkillRegistry(workspaceRoot: root)
+        let skills = try await registry.loadSkills()
+        let snapshot = try await registry.loadPromptSnapshot()
+
+        let resolved = skills.first { $0.name == "my-skill" }
+        #expect(resolved?.description == "workspace skill")
+        #expect(snapshot.prompt.contains("Workspace instructions."))
+        #expect(!snapshot.prompt.contains("Do not expose to prompt."))
+    }
+
+    @Test
+    func runtimeInjectsSkillPromptIntoModelPrompt() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let workspaceSkill = root
+            .appendingPathComponent("skills")
+            .appendingPathComponent("weather")
+            .appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(
+            at: workspaceSkill.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        ---
+        name: weather
+        description: Weather helper
+        ---
+
+        Always include WEATHER_MODE in your reasoning.
+        """.write(to: workspaceSkill, atomically: true, encoding: .utf8)
+
+        let router = ModelRouter()
+        await router.register(PromptEchoProvider())
+        let runtime = EmbeddedAgentRuntime(modelRouter: router)
+
+        let result = try await runtime.run(
+            AgentRunRequest(
+                sessionKey: "main",
+                prompt: "Forecast for today?",
+                modelProviderID: "prompt-echo",
+                workspaceRootPath: root.path
+            )
+        )
+
+        #expect(result.output.contains("## Skills"))
+        #expect(result.output.contains("Always include WEATHER_MODE in your reasoning."))
+        #expect(result.output.contains("## User Request"))
+        #expect(result.output.contains("Forecast for today?"))
+    }
+}
