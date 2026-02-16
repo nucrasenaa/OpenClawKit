@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026.1.1 - 2026-02-15
+
+### Added
+
+- Model-provider routing module (`OpenClawModels`) with configurable provider
+  selection, fallback behavior, and runtime integration through
+  `EmbeddedAgentRuntime`.
+- Apple Foundation Models provider behind compile/runtime availability guards
+  and deterministic fallback tests for unsupported platforms.
+- Local-model adapter contracts inspired by on-device lifecycle patterns,
+  including load/unload semantics and streaming-friendly generation hooks.
+- Workspace skill system (`OpenClawSkills`) with `SKILL.md` discovery,
+  frontmatter parsing, precedence-aware merging, and runtime prompt injection.
+- JavaScriptCore skill execution sandbox with strict workspace path jail and
+  guarded filesystem host APIs for code-executing skills on Apple platforms.
+- Bootstrap/personality prompt context loading (`AGENTS.md`, `SOUL.md`,
+  `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`,
+  `MEMORY.md`) integrated into prompt assembly.
+- Live Discord channel adapter with deploy/stop lifecycle controls, inbound
+  polling, outbound delivery, auth-safe error handling, and route-aware message
+  envelopes.
+- iOS example app expanded into Deploy/Chat tabs with `TabView`, local
+  transcript persistence, periodic memory summarization jobs, and runtime
+  deployment wiring for local + Discord chat flows.
+
+### Changed
+
+- iOS example project now links the local `OpenClawKit` package product and
+  enforces warnings-as-errors from project build settings.
+- iOS compatibility hardened in core utilities (home-directory resolution and
+  process execution fallback behavior).
+- iOS validation scripts now rely on target build settings for warnings-as-
+  errors to avoid transitive package flag conflicts.
+
+### Documentation
+
+- Added inline `///` API documentation for major public surfaces in
+  `OpenClawKit`, `OpenClawAgents`, `OpenClawChannels`, and `OpenClawCore`
+  configuration models.
+
 ## 2026.1.0 - 2026-02-15
 
 ### Added

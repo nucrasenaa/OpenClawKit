@@ -5,8 +5,11 @@ import OpenClawModels
 import OpenClawProtocol
 import OpenClawSkills
 
+/// Errors surfaced by the embedded agent runtime.
 public enum AgentRuntimeError: Error, LocalizedError, Sendable {
+    /// A requested tool name is not registered.
     case toolNotFound(String)
+    /// A run exceeded the configured timeout window.
     case timedOut(runID: String)
 
     public var errorDescription: String? {
@@ -19,7 +22,9 @@ public enum AgentRuntimeError: Error, LocalizedError, Sendable {
     }
 }
 
+/// Timeline event emitted during agent run execution.
 public struct AgentRunEvent: Sendable, Equatable {
+    /// Event kinds emitted by a run.
     public enum Kind: String, Sendable {
         case runStarted
         case toolStarted
@@ -31,6 +36,11 @@ public struct AgentRunEvent: Sendable, Equatable {
     public let kind: Kind
     public let toolName: String?
 
+    /// Creates a run lifecycle event.
+    /// - Parameters:
+    ///   - runID: Correlated run identifier.
+    ///   - kind: Event type.
+    ///   - toolName: Optional tool associated with event.
     public init(runID: String, kind: Kind, toolName: String? = nil) {
         self.runID = runID
         self.kind = kind
@@ -38,6 +48,7 @@ public struct AgentRunEvent: Sendable, Equatable {
     }
 }
 
+/// Input payload for a single agent run.
 public struct AgentRunRequest: Sendable {
     public let runID: String
     public let sessionKey: String
@@ -46,6 +57,14 @@ public struct AgentRunRequest: Sendable {
     public let modelProviderID: String?
     public let workspaceRootPath: String?
 
+    /// Creates a run request.
+    /// - Parameters:
+    ///   - runID: Optional external run identifier.
+    ///   - sessionKey: Session key used for routing/memory.
+    ///   - prompt: User prompt payload.
+    ///   - toolCalls: Ordered tool calls to execute before model generation.
+    ///   - modelProviderID: Optional provider override.
+    ///   - workspaceRootPath: Optional workspace root for skill/bootstrap prompt injection.
     public init(
         runID: String = UUID().uuidString,
         sessionKey: String,
@@ -63,6 +82,7 @@ public struct AgentRunRequest: Sendable {
     }
 }
 
+/// Output payload for a completed agent run.
 public struct AgentRunResult: Sendable {
     public let runID: String
     public let sessionKey: String
@@ -70,6 +90,13 @@ public struct AgentRunResult: Sendable {
     public let toolResults: [AgentToolResult]
     public let events: [AgentRunEvent]
 
+    /// Creates a run result.
+    /// - Parameters:
+    ///   - runID: Run identifier.
+    ///   - sessionKey: Session key resolved for the run.
+    ///   - output: Model output text.
+    ///   - toolResults: Tool execution outputs.
+    ///   - events: Lifecycle events emitted during run.
     public init(
         runID: String,
         sessionKey: String,
@@ -85,11 +112,17 @@ public struct AgentRunResult: Sendable {
     }
 }
 
+/// Actor that orchestrates tool execution, gateway lifecycle, and model generation.
 public actor EmbeddedAgentRuntime {
     private let gatewayClient: GatewayClient
     private let toolRegistry: AgentToolRegistry
     private let modelRouter: ModelRouter
 
+    /// Creates an embedded runtime.
+    /// - Parameters:
+    ///   - gatewayClient: Gateway transport client.
+    ///   - toolRegistry: Registry used to resolve tool calls.
+    ///   - modelRouter: Router for model provider selection.
     public init(
         gatewayClient: GatewayClient = GatewayClient(),
         toolRegistry: AgentToolRegistry = AgentToolRegistry(),
@@ -100,18 +133,29 @@ public actor EmbeddedAgentRuntime {
         self.modelRouter = modelRouter
     }
 
+    /// Registers a tool implementation for runtime use.
+    /// - Parameter tool: Tool instance to register.
     public func registerTool(_ tool: any AgentTool) async {
         await self.toolRegistry.register(tool)
     }
 
+    /// Registers a model provider for runtime routing.
+    /// - Parameter provider: Provider implementation.
     public func registerModelProvider(_ provider: any ModelProvider) async {
         await self.modelRouter.register(provider)
     }
 
+    /// Updates default model provider used when request does not specify one.
+    /// - Parameter id: Registered provider identifier.
     public func setDefaultModelProviderID(_ id: String) async throws {
         try await self.modelRouter.setDefaultProviderID(id)
     }
 
+    /// Executes an agent run with optional timeout protection.
+    /// - Parameters:
+    ///   - request: Run request payload.
+    ///   - timeoutMs: Timeout in milliseconds.
+    /// - Returns: Run result containing output, tool results, and lifecycle events.
     public func run(_ request: AgentRunRequest, timeoutMs: Int = 30_000) async throws -> AgentRunResult {
         let runID = request.runID
         let timeoutNs = UInt64(max(0, timeoutMs)) * 1_000_000
@@ -174,6 +218,11 @@ public actor EmbeddedAgentRuntime {
         }
     }
 
+    /// Builds the final prompt by combining bootstrap context, skills, and user text.
+    /// - Parameters:
+    ///   - basePrompt: Original user prompt.
+    ///   - workspaceRootPath: Optional workspace path containing bootstrap/skills.
+    /// - Returns: Prompt sent to model provider.
     private static func composePrompt(basePrompt: String, workspaceRootPath: String?) async throws -> String {
         guard let workspaceRootPath else {
             return basePrompt

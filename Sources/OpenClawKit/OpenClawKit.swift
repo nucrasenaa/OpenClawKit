@@ -10,35 +10,60 @@
 @_exported import OpenClawSkills
 import Foundation
 
+/// High-level facade for integrating OpenClawKit into host apps.
 public struct OpenClawSDK: Sendable {
+    /// Shared singleton instance for convenience integrations.
     public static let shared = OpenClawSDK()
 
+    /// Build metadata for the linked SDK bundle.
     public let buildInfo: OpenClawBuildInfo
 
+    /// Creates an SDK facade with explicit build metadata.
+    /// - Parameter buildInfo: Build information exposed by the SDK.
     public init(buildInfo: OpenClawBuildInfo = OpenClawBuildInfo(protocolVersion: GATEWAY_PROTOCOL_VERSION)) {
         self.buildInfo = buildInfo
     }
 
+    /// Loads configuration from disk with in-memory caching.
+    /// - Parameters:
+    ///   - fileURL: Path to config JSON.
+    ///   - cacheTTLms: Cache lifetime in milliseconds.
+    /// - Returns: Decoded configuration payload.
     public func loadConfig(from fileURL: URL, cacheTTLms: Int = 200) async throws -> OpenClawConfig {
         let store = ConfigStore(fileURL: fileURL, cacheTTLms: cacheTTLms)
         return try await store.loadCached()
     }
 
+    /// Saves configuration to disk.
+    /// - Parameters:
+    ///   - config: Configuration value to persist.
+    ///   - fileURL: Destination config path.
     public func saveConfig(_ config: OpenClawConfig, to fileURL: URL) async throws {
         let store = ConfigStore(fileURL: fileURL)
         try await store.save(config)
     }
 
+    /// Loads and returns a session store actor from disk.
+    /// - Parameter fileURL: Path to session store file.
+    /// - Returns: Initialized session store.
     public func loadSessionStore(from fileURL: URL) async throws -> SessionStore {
         let store = SessionStore(fileURL: fileURL)
         try await store.load()
         return store
     }
 
+    /// Saves an existing session store actor.
+    /// - Parameter store: Session store to persist.
     public func saveSessionStore(_ store: SessionStore) async throws {
         try await store.save()
     }
 
+    /// Resolves the effective session key for routing.
+    /// - Parameters:
+    ///   - explicit: Explicit key from caller.
+    ///   - context: Optional routing context.
+    ///   - config: Routing configuration.
+    /// - Returns: Resolved session key.
     public func resolveSessionKey(
         explicit: String?,
         context: SessionRoutingContext?,
@@ -47,15 +72,28 @@ public struct OpenClawSDK: Sendable {
         SessionKeyResolver.resolve(explicit: explicit, context: context, config: config)
     }
 
+    /// Validates that a port is available to bind.
+    /// - Parameter port: Candidate port.
     public func ensurePortAvailable(_ port: Int) throws {
         try PortUtils.ensurePortAvailable(port)
     }
 
+    /// Executes a process command.
+    /// - Parameters:
+    ///   - command: Command plus arguments.
+    ///   - cwd: Optional working directory.
+    /// - Returns: Process result containing exit code/stdout/stderr.
     public func runExec(_ command: [String], cwd: URL? = nil) async throws -> ProcessResult {
         let runner = ProcessRunner()
         return try await runner.run(command, cwd: cwd)
     }
 
+    /// Executes a process command with timeout cancellation.
+    /// - Parameters:
+    ///   - command: Command plus arguments.
+    ///   - timeoutMs: Timeout in milliseconds.
+    ///   - cwd: Optional working directory.
+    /// - Returns: Process result when completed before timeout.
     public func runCommandWithTimeout(
         _ command: [String],
         timeoutMs: Int,
@@ -78,10 +116,18 @@ public struct OpenClawSDK: Sendable {
         }
     }
 
+    /// Resolves a binary on PATH and returns absolute path.
+    /// - Parameter name: Binary name.
+    /// - Returns: Absolute binary path.
     public func ensureBinary(_ name: String) throws -> String {
         try BinaryUtils.ensureBinary(name)
     }
 
+    /// Builds an auto-reply engine backed by in-memory web channel adapter.
+    /// - Parameters:
+    ///   - config: Runtime configuration.
+    ///   - sessionStoreURL: Session store path.
+    /// - Returns: Ready-to-use auto-reply engine.
     public func monitorWebChannel(
         config: OpenClawConfig,
         sessionStoreURL: URL
@@ -101,6 +147,12 @@ public struct OpenClawSDK: Sendable {
         )
     }
 
+    /// Processes one inbound message using a temporary engine built from config.
+    /// - Parameters:
+    ///   - config: Runtime configuration.
+    ///   - sessionStoreURL: Session store path.
+    ///   - inbound: Message payload to process.
+    /// - Returns: Generated outbound message.
     public func getReplyFromConfig(
         config: OpenClawConfig,
         sessionStoreURL: URL,
@@ -110,6 +162,7 @@ public struct OpenClawSDK: Sendable {
         return try await engine.process(inbound)
     }
 
+    /// Suspends until the task is cancelled.
     public func waitForever() async {
         while !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
