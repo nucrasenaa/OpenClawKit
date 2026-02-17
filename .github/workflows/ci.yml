@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Import Swift GPG public key
+        run: |
+          set -euo pipefail
+          curl -fsSL https://swift.org/keys/all-keys.asc | gpg --import -
+
       - name: Setup Swift 6.2
         uses: swift-actions/setup-swift@v3
         with:
