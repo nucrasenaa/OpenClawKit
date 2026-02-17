@@ -22,9 +22,45 @@ struct DeployView: View {
                     TextField("Discord Channel ID", text: $appState.discordChannelID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    SecureField("OpenAI API Key", text: $appState.openAIAPIKey)
+                    switch appState.selectedProvider {
+                    case .openAI:
+                        SecureField("OpenAI API Key", text: $appState.openAIAPIKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case .openAICompatible:
+                        SecureField("OpenAI-Compatible API Key", text: $appState.openAICompatibleAPIKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        TextField("OpenAI-Compatible Base URL", text: $appState.openAICompatibleBaseURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case .anthropic:
+                        SecureField("Anthropic API Key", text: $appState.anthropicAPIKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case .gemini:
+                        SecureField("Gemini API Key", text: $appState.geminiAPIKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    case .foundation, .echo:
+                        Text("Selected provider does not require an external API key.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Model Routing") {
+                    Picker("Provider", selection: $appState.selectedProvider) {
+                        ForEach(appState.availableProviders) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+                    TextField("Model ID", text: $appState.selectedModelID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    Button("Use Suggested Model") {
+                        appState.selectedModelID = appState.selectedProvider.defaultModelID
+                    }
                 }
 
                 Section("Agent Personality") {
@@ -49,6 +85,11 @@ struct DeployView: View {
                 }
             }
             .navigationTitle("Deploy")
+            .onChange(of: appState.selectedProvider) { _, newValue in
+                if appState.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    appState.selectedModelID = newValue.defaultModelID
+                }
+            }
         }
     }
 }

@@ -22,6 +22,67 @@ final class OpenClawAppState: ObservableObject {
         case system
     }
 
+    /// User-selectable provider choices surfaced in deploy settings.
+    enum DeployProvider: String, Codable, CaseIterable, Identifiable, Sendable {
+        case echo
+        case openAI
+        case openAICompatible
+        case anthropic
+        case gemini
+        case foundation
+
+        var id: String { self.rawValue }
+
+        var providerID: String {
+            switch self {
+            case .echo:
+                return EchoModelProvider.defaultID
+            case .openAI:
+                return OpenAIModelProvider.providerID
+            case .openAICompatible:
+                return OpenAICompatibleModelProvider.providerID
+            case .anthropic:
+                return AnthropicModelProvider.providerID
+            case .gemini:
+                return GeminiModelProvider.providerID
+            case .foundation:
+                return FoundationModelsProvider.providerID
+            }
+        }
+
+        var displayName: String {
+            switch self {
+            case .echo:
+                return "Echo (offline placeholder)"
+            case .openAI:
+                return "OpenAI"
+            case .openAICompatible:
+                return "OpenAI Compatible"
+            case .anthropic:
+                return "Anthropic"
+            case .gemini:
+                return "Google Gemini"
+            case .foundation:
+                return "Apple Foundation Models"
+            }
+        }
+
+        var defaultModelID: String {
+            switch self {
+            case .echo:
+                return "echo-1"
+            case .openAI, .openAICompatible:
+                return "gpt-4.1-mini"
+            case .anthropic:
+                return "claude-3-5-haiku-latest"
+            case .gemini:
+                return "gemini-2.0-flash"
+            case .foundation:
+                return "apple-foundation-default"
+            }
+        }
+    }
+
     /// Persisted chat message model used by local transcript storage.
     struct ChatMessage: Identifiable, Codable, Sendable, Equatable {
         let id: UUID
@@ -48,12 +109,75 @@ final class OpenClawAppState: ObservableObject {
         var discordBotToken: String
         var discordChannelID: String
         var openAIAPIKey: String
+        var openAICompatibleAPIKey: String
+        var openAICompatibleBaseURL: String
+        var anthropicAPIKey: String
+        var geminiAPIKey: String
+        var selectedProvider: DeployProvider
+        var selectedModelID: String
         var personality: String
+
+        init(
+            discordBotToken: String,
+            discordChannelID: String,
+            openAIAPIKey: String,
+            openAICompatibleAPIKey: String,
+            openAICompatibleBaseURL: String,
+            anthropicAPIKey: String,
+            geminiAPIKey: String,
+            selectedProvider: DeployProvider,
+            selectedModelID: String,
+            personality: String
+        ) {
+            self.discordBotToken = discordBotToken
+            self.discordChannelID = discordChannelID
+            self.openAIAPIKey = openAIAPIKey
+            self.openAICompatibleAPIKey = openAICompatibleAPIKey
+            self.openAICompatibleBaseURL = openAICompatibleBaseURL
+            self.anthropicAPIKey = anthropicAPIKey
+            self.geminiAPIKey = geminiAPIKey
+            self.selectedProvider = selectedProvider
+            self.selectedModelID = selectedModelID
+            self.personality = personality
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case discordBotToken
+            case discordChannelID
+            case openAIAPIKey
+            case openAICompatibleAPIKey
+            case openAICompatibleBaseURL
+            case anthropicAPIKey
+            case geminiAPIKey
+            case selectedProvider
+            case selectedModelID
+            case personality
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.discordBotToken = try container.decodeIfPresent(String.self, forKey: .discordBotToken) ?? ""
+            self.discordChannelID = try container.decodeIfPresent(String.self, forKey: .discordChannelID) ?? ""
+            self.openAIAPIKey = try container.decodeIfPresent(String.self, forKey: .openAIAPIKey) ?? ""
+            self.openAICompatibleAPIKey = try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? ""
+            self.openAICompatibleBaseURL = try container.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL) ?? "https://api.openai.com/v1"
+            self.anthropicAPIKey = try container.decodeIfPresent(String.self, forKey: .anthropicAPIKey) ?? ""
+            self.geminiAPIKey = try container.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
+            self.selectedProvider = try container.decodeIfPresent(DeployProvider.self, forKey: .selectedProvider) ?? .openAI
+            self.selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID) ?? self.selectedProvider.defaultModelID
+            self.personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
+        }
     }
 
     @Published var discordBotToken: String = ""
     @Published var discordChannelID: String = ""
     @Published var openAIAPIKey: String = ""
+    @Published var openAICompatibleAPIKey: String = ""
+    @Published var openAICompatibleBaseURL: String = "https://api.openai.com/v1"
+    @Published var anthropicAPIKey: String = ""
+    @Published var geminiAPIKey: String = ""
+    @Published var selectedProvider: DeployProvider = .openAI
+    @Published var selectedModelID: String = DeployProvider.openAI.defaultModelID
     @Published var personality: String = ""
     @Published var pendingMessage: String = ""
 
@@ -65,6 +189,11 @@ final class OpenClawAppState: ObservableObject {
     /// Returns whether runtime deployment is actively running.
     var isDeployed: Bool {
         self.deploymentState == .running
+    }
+
+    /// All available provider selections rendered by deploy UI.
+    var availableProviders: [DeployProvider] {
+        DeployProvider.allCases
     }
 
     private let sdk = OpenClawSDK.shared
@@ -124,7 +253,7 @@ final class OpenClawAppState: ObservableObject {
                 pollIntervalMs: 2_000,
                 mentionOnly: true
             )
-            let openAIEnabled = !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let modelsConfig = try self.makeModelsConfig()
 
             let config = OpenClawConfig(
                 agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: self.workspaceURL.path),
@@ -135,13 +264,7 @@ final class OpenClawAppState: ObservableObject {
                     includeAccountID: false,
                     includePeerID: false
                 ),
-                models: ModelsConfig(
-                    defaultProviderID: openAIEnabled ? OpenAIModelProvider.providerID : EchoModelProvider.defaultID,
-                    openAI: OpenAIModelConfig(
-                        enabled: openAIEnabled,
-                        apiKey: normalized(self.openAIAPIKey)
-                    )
-                )
+                models: modelsConfig
             )
 
             try await self.sdk.saveConfig(config, to: self.configURL)
@@ -158,12 +281,7 @@ final class OpenClawAppState: ObservableObject {
             try await webchat.start()
 
             let runtime = EmbeddedAgentRuntime()
-            if openAIEnabled {
-                await runtime.registerModelProvider(
-                    OpenAIModelProvider(configuration: config.models.openAI)
-                )
-                try await runtime.setDefaultModelProviderID(OpenAIModelProvider.providerID)
-            }
+            try await self.registerSelectedModelProvider(on: runtime, using: config.models)
             let replyEngine = AutoReplyEngine(
                 config: config,
                 sessionStore: sessionStore,
@@ -200,8 +318,8 @@ final class OpenClawAppState: ObservableObject {
 
             self.deploymentState = .running
             self.statusText = self.discordAdapter == nil
-                ? "Deployment running (local chat only)."
-                : "Deployment running (Discord + local chat)."
+                ? "Deployment running (local chat only, provider: \(self.selectedProvider.displayName))."
+                : "Deployment running (Discord + local chat, provider: \(self.selectedProvider.displayName))."
         } catch {
             self.deploymentState = .failed
             self.statusText = "Deployment failed: \(error.localizedDescription)"
@@ -230,6 +348,98 @@ final class OpenClawAppState: ObservableObject {
         self.conversationMemoryStore = nil
         self.deploymentState = .stopped
         self.statusText = "Deployment stopped."
+    }
+
+    /// Builds model config from current deploy-provider selections.
+    private func makeModelsConfig() throws -> ModelsConfig {
+        let selectedModelID = normalized(self.selectedModelID) ?? self.selectedProvider.defaultModelID
+
+        switch self.selectedProvider {
+        case .echo:
+            return ModelsConfig(
+                defaultProviderID: EchoModelProvider.defaultID
+            )
+        case .openAI:
+            guard let apiKey = normalized(self.openAIAPIKey) else {
+                throw OpenClawCoreError.invalidConfiguration("OpenAI API key is required for OpenAI provider")
+            }
+            return ModelsConfig(
+                defaultProviderID: OpenAIModelProvider.providerID,
+                openAI: OpenAIModelConfig(
+                    enabled: true,
+                    modelID: selectedModelID,
+                    apiKey: apiKey
+                )
+            )
+        case .openAICompatible:
+            guard let apiKey = normalized(self.openAICompatibleAPIKey) else {
+                throw OpenClawCoreError.invalidConfiguration("API key is required for OpenAI-compatible provider")
+            }
+            return ModelsConfig(
+                defaultProviderID: OpenAICompatibleModelProvider.providerID,
+                openAICompatible: OpenAICompatibleModelConfig(
+                    enabled: true,
+                    modelID: selectedModelID,
+                    apiKey: apiKey,
+                    baseURL: normalized(self.openAICompatibleBaseURL) ?? "https://api.openai.com/v1"
+                )
+            )
+        case .anthropic:
+            guard let apiKey = normalized(self.anthropicAPIKey) else {
+                throw OpenClawCoreError.invalidConfiguration("Anthropic API key is required for Anthropic provider")
+            }
+            return ModelsConfig(
+                defaultProviderID: AnthropicModelProvider.providerID,
+                anthropic: AnthropicModelConfig(
+                    enabled: true,
+                    modelID: selectedModelID,
+                    apiKey: apiKey
+                )
+            )
+        case .gemini:
+            guard let apiKey = normalized(self.geminiAPIKey) else {
+                throw OpenClawCoreError.invalidConfiguration("Gemini API key is required for Gemini provider")
+            }
+            return ModelsConfig(
+                defaultProviderID: GeminiModelProvider.providerID,
+                gemini: GeminiModelConfig(
+                    enabled: true,
+                    modelID: selectedModelID,
+                    apiKey: apiKey
+                )
+            )
+        case .foundation:
+            return ModelsConfig(
+                defaultProviderID: FoundationModelsProvider.providerID,
+                foundation: FoundationModelConfig(enabled: true, preferredModelID: selectedModelID)
+            )
+        }
+    }
+
+    /// Registers and activates currently selected model provider on runtime.
+    private func registerSelectedModelProvider(
+        on runtime: EmbeddedAgentRuntime,
+        using models: ModelsConfig
+    ) async throws {
+        switch self.selectedProvider {
+        case .echo:
+            try await runtime.setDefaultModelProviderID(EchoModelProvider.defaultID)
+        case .openAI:
+            await runtime.registerModelProvider(OpenAIModelProvider(configuration: models.openAI))
+            try await runtime.setDefaultModelProviderID(OpenAIModelProvider.providerID)
+        case .openAICompatible:
+            await runtime.registerModelProvider(OpenAICompatibleModelProvider(configuration: models.openAICompatible))
+            try await runtime.setDefaultModelProviderID(OpenAICompatibleModelProvider.providerID)
+        case .anthropic:
+            await runtime.registerModelProvider(AnthropicModelProvider(configuration: models.anthropic))
+            try await runtime.setDefaultModelProviderID(AnthropicModelProvider.providerID)
+        case .gemini:
+            await runtime.registerModelProvider(GeminiModelProvider(configuration: models.gemini))
+            try await runtime.setDefaultModelProviderID(GeminiModelProvider.providerID)
+        case .foundation:
+            await runtime.registerModelProvider(FoundationModelsProvider())
+            try await runtime.setDefaultModelProviderID(FoundationModelsProvider.providerID)
+        }
     }
 
     /// Sends the currently drafted message if non-empty.
@@ -338,7 +548,16 @@ final class OpenClawAppState: ObservableObject {
         self.discordBotToken = settings.discordBotToken
         self.discordChannelID = settings.discordChannelID
         self.openAIAPIKey = settings.openAIAPIKey
+        self.openAICompatibleAPIKey = settings.openAICompatibleAPIKey
+        self.openAICompatibleBaseURL = settings.openAICompatibleBaseURL
+        self.anthropicAPIKey = settings.anthropicAPIKey
+        self.geminiAPIKey = settings.geminiAPIKey
+        self.selectedProvider = settings.selectedProvider
+        self.selectedModelID = settings.selectedModelID
         self.personality = settings.personality
+        if self.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.selectedModelID = self.selectedProvider.defaultModelID
+        }
     }
 
     /// Persists deployment settings to local storage.
@@ -347,6 +566,12 @@ final class OpenClawAppState: ObservableObject {
             discordBotToken: self.discordBotToken,
             discordChannelID: self.discordChannelID,
             openAIAPIKey: self.openAIAPIKey,
+            openAICompatibleAPIKey: self.openAICompatibleAPIKey,
+            openAICompatibleBaseURL: self.openAICompatibleBaseURL,
+            anthropicAPIKey: self.anthropicAPIKey,
+            geminiAPIKey: self.geminiAPIKey,
+            selectedProvider: self.selectedProvider,
+            selectedModelID: self.selectedModelID,
             personality: self.personality
         )
         let data = try self.encoder.encode(settings)
