@@ -57,6 +57,9 @@ public struct OutboundMessage: Sendable, Equatable {
     }
 }
 
+/// Async callback invoked for adapter-delivered inbound messages.
+public typealias InboundMessageHandler = @Sendable (InboundMessage) async -> Void
+
 /// Pluggable channel transport abstraction.
 public protocol ChannelAdapter: Sendable {
     /// Channel identifier handled by this adapter.
@@ -68,6 +71,13 @@ public protocol ChannelAdapter: Sendable {
     /// Sends an outbound message to the backing channel.
     /// - Parameter message: Outbound payload.
     func send(_ message: OutboundMessage) async throws
+}
+
+/// Optional adapter capability for channels that can push inbound messages.
+public protocol InboundChannelAdapter: ChannelAdapter {
+    /// Registers or clears the inbound message callback.
+    /// - Parameter handler: Callback invoked when inbound messages are received.
+    func setInboundHandler(_ handler: InboundMessageHandler?) async
 }
 
 /// Registry that tracks channel adapters and dispatches outbound sends.

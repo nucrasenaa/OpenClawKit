@@ -25,6 +25,55 @@ struct ConfigSessionRoutingTests {
     }
 
     @Test
+    func channelsConfigDefaultsLoadWhenFieldsMissing() throws {
+        let legacyJSON = """
+        {
+          "channels": {
+            "discord": {
+              "enabled": true,
+              "botToken": "discord-token",
+              "defaultChannelID": "123"
+            }
+          }
+        }
+        """
+        let decoded = try JSONDecoder().decode(OpenClawConfig.self, from: Data(legacyJSON.utf8))
+        #expect(decoded.channels.discord.enabled == true)
+        #expect(decoded.channels.telegram.enabled == false)
+        #expect(decoded.channels.telegram.baseURL == "https://api.telegram.org")
+        #expect(decoded.channels.whatsappCloud.enabled == false)
+        #expect(decoded.channels.whatsappCloud.apiVersion == "v20.0")
+    }
+
+    @Test
+    func channelsConfigRoundTripsExpandedChannelSettings() throws {
+        let config = OpenClawConfig(
+            channels: ChannelsConfig(
+                discord: DiscordChannelConfig(enabled: true, botToken: "discord", defaultChannelID: "1"),
+                telegram: TelegramChannelConfig(
+                    enabled: true,
+                    botToken: "telegram",
+                    defaultChatID: "456",
+                    pollIntervalMs: 3_000,
+                    mentionOnly: false
+                ),
+                whatsappCloud: WhatsAppCloudChannelConfig(
+                    enabled: true,
+                    accessToken: "wa-token",
+                    phoneNumberID: "pnid",
+                    webhookVerifyToken: "verify-token"
+                )
+            )
+        )
+        let encoded = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(OpenClawConfig.self, from: encoded)
+        #expect(decoded.channels.telegram.enabled == true)
+        #expect(decoded.channels.telegram.defaultChatID == "456")
+        #expect(decoded.channels.whatsappCloud.enabled == true)
+        #expect(decoded.channels.whatsappCloud.phoneNumberID == "pnid")
+    }
+
+    @Test
     func configStoreCacheCanBeCleared() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-config-cache-tests", isDirectory: true)

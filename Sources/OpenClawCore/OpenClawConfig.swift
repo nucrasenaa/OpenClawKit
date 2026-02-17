@@ -28,6 +28,32 @@ public struct OpenClawConfig: Codable, Sendable, Equatable {
         self.routing = routing
         self.models = models
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case gateway
+        case agents
+        case channels
+        case routing
+        case models
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.gateway = try container.decodeIfPresent(GatewayConfig.self, forKey: .gateway) ?? GatewayConfig()
+        self.agents = try container.decodeIfPresent(AgentsConfig.self, forKey: .agents) ?? AgentsConfig()
+        self.channels = try container.decodeIfPresent(ChannelsConfig.self, forKey: .channels) ?? ChannelsConfig()
+        self.routing = try container.decodeIfPresent(RoutingConfig.self, forKey: .routing) ?? RoutingConfig()
+        self.models = try container.decodeIfPresent(ModelsConfig.self, forKey: .models) ?? ModelsConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.gateway, forKey: .gateway)
+        try container.encode(self.agents, forKey: .agents)
+        try container.encode(self.channels, forKey: .channels)
+        try container.encode(self.routing, forKey: .routing)
+        try container.encode(self.models, forKey: .models)
+    }
 }
 
 /// Gateway client connection settings.
@@ -115,11 +141,41 @@ public struct RoutingConfig: Codable, Sendable, Equatable {
 /// Channel adapter related configuration.
 public struct ChannelsConfig: Codable, Sendable, Equatable {
     public var discord: DiscordChannelConfig
+    public var telegram: TelegramChannelConfig
+    public var whatsappCloud: WhatsAppCloudChannelConfig
 
     /// Creates channel config.
     /// - Parameter discord: Discord channel settings.
-    public init(discord: DiscordChannelConfig = DiscordChannelConfig()) {
+    /// - Parameter telegram: Telegram channel settings.
+    /// - Parameter whatsappCloud: WhatsApp Cloud API channel settings.
+    public init(
+        discord: DiscordChannelConfig = DiscordChannelConfig(),
+        telegram: TelegramChannelConfig = TelegramChannelConfig(),
+        whatsappCloud: WhatsAppCloudChannelConfig = WhatsAppCloudChannelConfig()
+    ) {
         self.discord = discord
+        self.telegram = telegram
+        self.whatsappCloud = whatsappCloud
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case discord
+        case telegram
+        case whatsappCloud
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.discord = try container.decodeIfPresent(DiscordChannelConfig.self, forKey: .discord) ?? DiscordChannelConfig()
+        self.telegram = try container.decodeIfPresent(TelegramChannelConfig.self, forKey: .telegram) ?? TelegramChannelConfig()
+        self.whatsappCloud = try container.decodeIfPresent(WhatsAppCloudChannelConfig.self, forKey: .whatsappCloud) ?? WhatsAppCloudChannelConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.discord, forKey: .discord)
+        try container.encode(self.telegram, forKey: .telegram)
+        try container.encode(self.whatsappCloud, forKey: .whatsappCloud)
     }
 }
 
@@ -184,6 +240,112 @@ public struct DiscordChannelConfig: Codable, Sendable, Equatable {
         try container.encode(self.pollIntervalMs, forKey: .pollIntervalMs)
         try container.encode(self.presenceEnabled, forKey: .presenceEnabled)
         try container.encode(self.mentionOnly, forKey: .mentionOnly)
+    }
+}
+
+/// Telegram adapter configuration.
+public struct TelegramChannelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var botToken: String?
+    public var defaultChatID: String?
+    public var pollIntervalMs: Int
+    public var mentionOnly: Bool
+    public var baseURL: String
+
+    /// Creates Telegram channel settings.
+    /// - Parameters:
+    ///   - enabled: Enables Telegram adapter startup.
+    ///   - botToken: Bot token used for API auth.
+    ///   - defaultChatID: Default chat ID for polling/sends.
+    ///   - pollIntervalMs: Poll interval in milliseconds.
+    ///   - mentionOnly: Processes group messages only when bot is explicitly mentioned.
+    ///   - baseURL: Telegram Bot API base URL.
+    public init(
+        enabled: Bool = false,
+        botToken: String? = nil,
+        defaultChatID: String? = nil,
+        pollIntervalMs: Int = 2_000,
+        mentionOnly: Bool = true,
+        baseURL: String = "https://api.telegram.org"
+    ) {
+        self.enabled = enabled
+        self.botToken = botToken
+        self.defaultChatID = defaultChatID
+        self.pollIntervalMs = max(250, pollIntervalMs)
+        self.mentionOnly = mentionOnly
+        self.baseURL = baseURL
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case botToken
+        case defaultChatID
+        case pollIntervalMs
+        case mentionOnly
+        case baseURL
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.botToken = try container.decodeIfPresent(String.self, forKey: .botToken)
+        self.defaultChatID = try container.decodeIfPresent(String.self, forKey: .defaultChatID)
+        let pollInterval = try container.decodeIfPresent(Int.self, forKey: .pollIntervalMs) ?? 2_000
+        self.pollIntervalMs = max(250, pollInterval)
+        self.mentionOnly = try container.decodeIfPresent(Bool.self, forKey: .mentionOnly) ?? true
+        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://api.telegram.org"
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.enabled, forKey: .enabled)
+        try container.encodeIfPresent(self.botToken, forKey: .botToken)
+        try container.encodeIfPresent(self.defaultChatID, forKey: .defaultChatID)
+        try container.encode(self.pollIntervalMs, forKey: .pollIntervalMs)
+        try container.encode(self.mentionOnly, forKey: .mentionOnly)
+        try container.encode(self.baseURL, forKey: .baseURL)
+    }
+}
+
+/// WhatsApp Cloud API adapter configuration.
+public struct WhatsAppCloudChannelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var accessToken: String?
+    public var phoneNumberID: String?
+    public var businessAccountID: String?
+    public var webhookVerifyToken: String?
+    public var webhookPath: String
+    public var baseURL: String
+    public var apiVersion: String
+
+    /// Creates WhatsApp Cloud API channel settings.
+    /// - Parameters:
+    ///   - enabled: Enables WhatsApp Cloud adapter startup.
+    ///   - accessToken: Cloud API access token.
+    ///   - phoneNumberID: WhatsApp phone number ID for send APIs.
+    ///   - businessAccountID: Optional business account identifier.
+    ///   - webhookVerifyToken: Verify token used during webhook setup.
+    ///   - webhookPath: Webhook path exposed by host app.
+    ///   - baseURL: Graph API base URL.
+    ///   - apiVersion: Graph API version segment.
+    public init(
+        enabled: Bool = false,
+        accessToken: String? = nil,
+        phoneNumberID: String? = nil,
+        businessAccountID: String? = nil,
+        webhookVerifyToken: String? = nil,
+        webhookPath: String = "/webhooks/whatsapp",
+        baseURL: String = "https://graph.facebook.com",
+        apiVersion: String = "v20.0"
+    ) {
+        self.enabled = enabled
+        self.accessToken = accessToken
+        self.phoneNumberID = phoneNumberID
+        self.businessAccountID = businessAccountID
+        self.webhookVerifyToken = webhookVerifyToken
+        self.webhookPath = webhookPath
+        self.baseURL = baseURL
+        self.apiVersion = apiVersion
     }
 }
 
