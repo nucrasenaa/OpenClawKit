@@ -48,6 +48,44 @@ public struct AgentRunEvent: Sendable, Equatable {
     }
 }
 
+/// Structured diagnostics event emitted by runtime/channel subsystems.
+public struct RuntimeDiagnosticEvent: Sendable, Equatable {
+    /// Event subsystem source (`runtime`, `channel`, etc.).
+    public let subsystem: String
+    /// Stable event name.
+    public let name: String
+    /// Optional correlated run identifier.
+    public let runID: String?
+    /// Optional correlated session key.
+    public let sessionKey: String?
+    /// Additional event metadata values.
+    public let metadata: [String: String]
+
+    /// Creates a diagnostics event.
+    /// - Parameters:
+    ///   - subsystem: Event subsystem.
+    ///   - name: Event name.
+    ///   - runID: Optional run identifier.
+    ///   - sessionKey: Optional session key.
+    ///   - metadata: Additional metadata.
+    public init(
+        subsystem: String,
+        name: String,
+        runID: String? = nil,
+        sessionKey: String? = nil,
+        metadata: [String: String] = [:]
+    ) {
+        self.subsystem = subsystem
+        self.name = name
+        self.runID = runID
+        self.sessionKey = sessionKey
+        self.metadata = metadata
+    }
+}
+
+/// Async sink invoked for each runtime diagnostics event.
+public typealias RuntimeDiagnosticSink = @Sendable (RuntimeDiagnosticEvent) async -> Void
+
 /// Input payload for a single agent run.
 public struct AgentRunRequest: Sendable {
     public let runID: String

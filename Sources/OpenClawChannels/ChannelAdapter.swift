@@ -175,6 +175,7 @@ public actor AutoReplyEngine {
     private let runtime: EmbeddedAgentRuntime
     private let conversationMemoryStore: ConversationMemoryStore?
     private let memoryContextLimit: Int
+    private let diagnosticsSink: RuntimeDiagnosticSink?
 
     /// Creates an auto-reply engine.
     /// - Parameters:
@@ -190,7 +191,8 @@ public actor AutoReplyEngine {
         channelRegistry: ChannelRegistry,
         runtime: EmbeddedAgentRuntime,
         conversationMemoryStore: ConversationMemoryStore? = nil,
-        memoryContextLimit: Int = 12
+        memoryContextLimit: Int = 12,
+        diagnosticsSink: RuntimeDiagnosticSink? = nil
     ) {
         self.config = config
         self.sessionStore = sessionStore
@@ -198,12 +200,22 @@ public actor AutoReplyEngine {
         self.runtime = runtime
         self.conversationMemoryStore = conversationMemoryStore
         self.memoryContextLimit = max(1, memoryContextLimit)
+        self.diagnosticsSink = diagnosticsSink
     }
 
     /// Processes an inbound message and returns the outbound response.
     /// - Parameter message: Inbound message envelope.
     /// - Returns: Outbound message delivered through channel registry.
     public func process(_ message: InboundMessage) async throws -> OutboundMessage {
+        await self.emitDiagnostic(
+            name: "inbound.received",
+            sessionKey: nil,
+            metadata: [
+                "channel": message.channel.rawValue,
+                "accountID": message.accountID ?? "",
+                "peerID": message.peerID,
+            ]
+        )
         let routingContext = SessionRoutingContext(
             channel: message.channel.rawValue,
             accountID: message.accountID,
@@ -215,6 +227,14 @@ public actor AutoReplyEngine {
             config: self.config
         )
         let resolvedAgentID = self.config.agents.resolvedAgentID(for: routingContext)
+        await self.emitDiagnostic(
+            name: "routing.session_resolved",
+            sessionKey: sessionKey,
+            metadata: [
+                "agentID": resolvedAgentID,
+                "channel": message.channel.rawValue,
+            ]
+        )
 
         _ = await self.sessionStore.resolveOrCreate(
             sessionKey: sessionKey,
@@ -231,6 +251,11 @@ public actor AutoReplyEngine {
             sessionKey: sessionKey,
             limit: self.memoryContextLimit
         ) ?? ""
+        await self.emitDiagnostic(
+            name: "memory.context_loaded",
+            sessionKey: sessionKey,
+            metadata: ["contextLength": String(memoryContext.count)]
+        )
         if let store = self.conversationMemoryStore {
             await store.appendUserTurn(
                 sessionKey: sessionKey,
@@ -244,6 +269,11 @@ public actor AutoReplyEngine {
         let runtimePrompt = Self.composeRuntimePrompt(
             memoryContext: memoryContext,
             inboundText: message.text
+        )
+        await self.emitDiagnostic(
+            name: "model.call.started",
+            sessionKey: sessionKey,
+            metadata: ["providerID": self.config.models.defaultProviderID]
         )
 
         let result = try await self.runtime.run(
@@ -260,6 +290,16 @@ public actor AutoReplyEngine {
             peerID: message.peerID,
             text: result.output
         )
+        await self.emitDiagnostic(
+            name: "runtime.completed",
+            sessionKey: sessionKey,
+            metadata: ["outputLength": String(result.output.count)]
+        )
+        await self.emitDiagnostic(
+            name: "model.call.completed",
+            sessionKey: sessionKey,
+            metadata: ["outputLength": String(result.output.count)]
+        )
         if let store = self.conversationMemoryStore {
             await store.appendAssistantTurn(
                 sessionKey: sessionKey,
@@ -270,7 +310,23 @@ public actor AutoReplyEngine {
             )
             try await store.save()
         }
+        await self.emitDiagnostic(
+            name: "outbound.dispatching",
+            sessionKey: sessionKey,
+            metadata: [
+                "channel": outbound.channel.rawValue,
+                "peerID": outbound.peerID,
+            ]
+        )
         try await self.channelRegistry.send(outbound)
+        await self.emitDiagnostic(
+            name: "outbound.sent",
+            sessionKey: sessionKey,
+            metadata: [
+                "channel": outbound.channel.rawValue,
+                "peerID": outbound.peerID,
+            ]
+        )
         return outbound
     }
 
@@ -280,6 +336,18 @@ public actor AutoReplyEngine {
             return inboundText
         }
         return "\(context)\n\n## New User Message\n\(inboundText)"
+    }
+
+    private func emitDiagnostic(name: String, sessionKey: String?, metadata: [String: String] = [:]) async {
+        guard let diagnosticsSink else { return }
+        await diagnosticsSink(
+            RuntimeDiagnosticEvent(
+                subsystem: "channel",
+                name: name,
+                sessionKey: sessionKey,
+                metadata: metadata
+            )
+        )
     }
 }
 

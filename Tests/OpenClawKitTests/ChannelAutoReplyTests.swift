@@ -12,6 +12,18 @@ struct ChannelAutoReplyTests {
         }
     }
 
+    actor DiagnosticCollector {
+        private(set) var events: [RuntimeDiagnosticEvent] = []
+
+        func append(_ event: RuntimeDiagnosticEvent) {
+            self.events.append(event)
+        }
+
+        func names() -> [String] {
+            self.events.map(\.name)
+        }
+    }
+
     @Test
     func channelRegistryRoutesMessagesByChannelID() async throws {
         let registry = ChannelRegistry()
@@ -148,6 +160,45 @@ struct ChannelAutoReplyTests {
         #expect(second.text.contains("[user] first question"))
         #expect(second.text.contains("## New User Message"))
         #expect(second.text.contains("second question"))
+    }
+
+    @Test
+    func autoReplyEngineEmitsChannelDiagnostics() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-diagnostics-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let collector = DiagnosticCollector()
+        let runtime = EmbeddedAgentRuntime()
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime,
+            diagnosticsSink: { event in
+                await collector.append(event)
+            }
+        )
+
+        _ = try await engine.process(
+            InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "hello")
+        )
+
+        let names = await collector.names()
+        #expect(names.contains("inbound.received"))
+        #expect(names.contains("routing.session_resolved"))
+        #expect(names.contains("model.call.started"))
+        #expect(names.contains("model.call.completed"))
+        #expect(names.contains("outbound.sent"))
     }
 }
 
