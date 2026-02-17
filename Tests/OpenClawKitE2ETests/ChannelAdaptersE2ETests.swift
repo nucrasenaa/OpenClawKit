@@ -37,5 +37,22 @@ struct ChannelAdaptersE2ETests {
         #expect(sent.first?.channel == .telegram)
         #expect(sent.first?.text == "ping")
     }
+
+    @Test
+    func registryDispatchesOutboundToWhatsAppAdapter() async throws {
+        let registry = ChannelRegistry()
+        let whatsapp = InMemoryChannelAdapter(id: .whatsapp)
+        await registry.register(whatsapp)
+        try await whatsapp.start()
+
+        try await registry.send(
+            OutboundMessage(channel: .whatsapp, accountID: "acct", peerID: "15550001111", text: "pong")
+        )
+
+        let sent = await whatsapp.sentMessages()
+        #expect(sent.count == 1)
+        #expect(sent.first?.channel == .whatsapp)
+        #expect(sent.first?.text == "pong")
+    }
 }
 
