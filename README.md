@@ -1,65 +1,78 @@
+<p align="center">
+  <img src="Resources/logo-banner.jpg" alt="OpenClawKit logo banner" width="900" />
+</p>
+
 # OpenClawKit
 
-`OpenClawKit` is a Swift package SDK for running local OpenClaw-style AI agent workflows
-inside native Swift applications.
+[![CI](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/ci.yml/badge.svg)](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/ci.yml)
+[![Security](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/security.yml/badge.svg)](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/security.yml)
+[![Release](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/release.yml/badge.svg)](https://github.com/MarcoDotIO/OpenClawKit/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-It follows Swift ecosystem conventions:
+OpenClawKit is a Swift-native SDK for building local-first AI agents in Apple apps and Linux services.  
+It ships actor-safe runtime primitives, channel adapters, model routing, skill execution, and a ready-to-run iOS example app.
 
-- Swift 6.2 strict-concurrency oriented design (`actor`, `Sendable`, async APIs)
-- multi-target package architecture for protocol/core/runtime/channel/plugin concerns
-- Apple platform support with Linux compatibility fallbacks
-- Swift Testing-first unit and E2E test coverage
+## Highlights
 
-## What You Get
+- Swift 6.2 concurrency-first architecture (`actor`, `Sendable`, async APIs)
+- Modular SDK surface (`OpenClawProtocol` through `OpenClawKit`) with clear layering
+- Built-in model providers: OpenAI, OpenAI-compatible, Anthropic, Gemini, Foundation Models, local, and echo
+- Channel runtime with Discord, Telegram, WhatsApp Cloud, and local webchat adapter flow
+- Workspace skills system (`SKILL.md` + script entrypoints) with generic runtime invocation
+- Strong test and CI posture: Swift Testing unit/E2E suites, Linux validation, iOS build gates, security scans
 
-- **Gateway transport layer** with actor-isolated request lifecycle, reconnect logic,
-  and TLS fingerprint validation
-- **Agent runtime** with tool orchestration, timeout handling, and lifecycle events
-- **Static plugin system** with hook dispatch, gateway method registration, and service lifecycle
-- **Channel and auto-reply core** with typed channel IDs and session-aware reply routing
-- **Runtime primitives** for memory indexing/search, media classification/limits, hook registry,
-  cron scheduling, and security pairing/approval state
-- **Facade API** in `OpenClawSDK` for app-level integration
+## Table of Contents
 
-## Package Modules
+- [Overview](#overview)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Skills and Tooling](#skills-and-tooling)
+- [iOS Example App](#ios-example-app)
+- [Package Modules](#package-modules)
+- [Testing and Quality Gates](#testing-and-quality-gates)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
-- `OpenClawProtocol` - generated protocol models and frame types
-- `OpenClawCore` - config/session stores, platform shims, security/cron/hooks utilities
-- `OpenClawGateway` - networking transport, socket abstraction, reconnect/watchdog logic
-- `OpenClawAgents` - run lifecycle, tool registry, timeout-aware execution
-- `OpenClawPlugins` - static plugin API, hooks, services, custom method registration
-- `OpenClawChannels` - channel adapters plus auto-reply engine core
-- `OpenClawMemory` - memory documents and local search model
-- `OpenClawMedia` - media normalization and MIME-kind handling
-- `OpenClawKit` - top-level facade and re-export surface
+## Overview
 
-## Platform and Compatibility
+OpenClawKit is designed for teams that want to ship agent experiences without building a full runtime stack from scratch.  
+You can compose model routing, session persistence, memory context, channel ingress/egress, and skill execution in one Swift package.
 
-OpenClawKit targets Apple platforms and is structured to run on Linux with fallbacks:
+Who this is for:
 
-- `CryptoKit` where available, with `swift-crypto` (`Crypto`) fallback
-- `FoundationNetworking` conditional imports for Linux networking support
-- security abstractions for platforms where native security APIs differ
-
-For networking safety, a strict-concurrency compile gate is included:
-
-```bash
-Scripts/check-networking-concurrency.sh
-```
+- Swift engineers building agent-enabled iOS/macOS/tvOS/watchOS apps
+- Backend teams running Linux-hosted Swift services with local or hosted model backends
+- OSS contributors who want clean module boundaries and predictable extension points
 
 ## Installation
 
-Add OpenClawKit as a SwiftPM dependency:
+Add OpenClawKit in Swift Package Manager.
 
 ```swift
-.package(url: "https://github.com/MarcoDotIO/OpenClawKit.git", branch: "main")
+dependencies: [
+    .package(url: "https://github.com/MarcoDotIO/OpenClawKit.git", branch: "main")
+]
 ```
 
-Then depend on the product in your target:
+Then add the product to your target:
 
 ```swift
-.product(name: "OpenClawKit", package: "OpenClawKit")
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "OpenClawKit", package: "OpenClawKit")
+        ]
+    )
+]
 ```
+
+### Minimum toolchain
+
+- Swift tools: `6.2`
+- Apple platforms: iOS 17+, macOS 14+, tvOS 17+, watchOS 10+
+- Linux: supported with compatibility shims (including `FoundationNetworking` where needed)
 
 ## Quick Start
 
@@ -73,53 +86,108 @@ let sessionsURL = URL(fileURLWithPath: "./state/sessions.json")
 let outbound = try await sdk.getReplyFromConfig(
     config: config,
     sessionStoreURL: sessionsURL,
-    inbound: InboundMessage(channel: .webchat, peerID: "user-1", text: "Hello")
+    inbound: InboundMessage(channel: .webchat, peerID: "user-1", text: "Hello there")
 )
 
 print(outbound.text)
 ```
 
-## Testing
+This flow gives you:
 
-Run full unit + E2E suite:
+- session key resolution + persistence
+- auto-reply routing through the embedded runtime
+- model response generation with configured provider routing
+
+## Skills and Tooling
+
+OpenClawKit supports workspace skills from `skills/<name>/SKILL.md` with script entrypoints.
+
+- Explicit invocation:
+  - `/skill weather {"location":"San Diego"}`
+  - `/weather {"location":"San Diego"}`
+- Natural-language references to skill names are also resolved in runtime auto-reply flow.
+- Skill execution is runtime-owned (SDK layer), not app-owned.
+
+Sample weather skill:
+
+- Definition: `skills/weather/SKILL.md`
+- Entrypoint: `skills/weather/scripts/weather.js`
+
+## iOS Example App
+
+A complete iOS sample app is included:
+
+- Project: `Examples/iOS/OpenClawiOS`
+- Deploy tab: provider selection, model routing, channel credentials, agent controls
+- Chat tab: local transcript UX with runtime-backed responses and memory summarization
+
+Build locally:
 
 ```bash
+./Scripts/build-ios-example.sh
+```
+
+## Package Modules
+
+- `OpenClawProtocol` - generated protocol models and gateway frame types
+- `OpenClawCore` - config/session stores, cross-platform shims, hooks/cron/security helpers
+- `OpenClawGateway` - actor-isolated gateway transport and socket lifecycle
+- `OpenClawModels` - provider protocols, routing, and provider implementations
+- `OpenClawSkills` - skill discovery, prompt snapshots, and runtime invocation engine
+- `OpenClawAgents` - embedded runtime, tool orchestration, timeout-safe run lifecycle
+- `OpenClawPlugins` - plugin protocol surfaces, services, and custom method hooks
+- `OpenClawChannels` - channel adapters and auto-reply orchestration
+- `OpenClawMemory` - conversation memory store and memory indexing/search primitives
+- `OpenClawMedia` - media normalization and MIME classification helpers
+- `OpenClawKit` - top-level facade APIs with module re-exports
+
+## Testing and Quality Gates
+
+Run core validation locally:
+
+```bash
+swift build
+Scripts/check-networking-concurrency.sh
 swift test
 ```
 
-For features that integrate with hosted model providers, set API keys in a local `.env`
-file (already ignored by `.gitignore` in this repository):
+CI workflows:
 
-- `OPENAI_API_KEY`
-- `GEMINI_API_KEY`
+- `ci.yml` - Swift validation + iOS example build
+- `security.yml` - secret scanning
+- `release.yml` - changelog-gated tag releases
 
-Do not commit `.env` values.
+## Documentation
 
-## Development Docs
+- [Architecture](docs/architecture.md)
+- [Testing Guide](docs/testing.md)
+- [API Surface](docs/api-surface.md)
+- [Changelog](CHANGELOG.md)
 
-- Architecture notes: `docs/architecture.md`
-- Testing guide: `docs/testing.md`
-- SDK API surface: `docs/api-surface.md`
-
-Protocol model generation is schema-driven:
+Protocol models are generated from schema:
 
 ```bash
 node Scripts/protocol-gen-swift.mjs
 ```
 
+## Contributing
+
+Issues and PRs are welcome.
+
+- Bugs and feature requests: [GitHub Issues](https://github.com/MarcoDotIO/OpenClawKit/issues)
+- Changes and review: [Pull Requests](https://github.com/MarcoDotIO/OpenClawKit/pulls)
+
+If you are contributing runtime or networking changes, please include tests and run the validation sequence above before opening a PR.
+
 ## Acknowledgements
 
-This project is a Swift-native SDK inspired by and aligned with the architecture and
-protocol design from the broader OpenClaw ecosystem.
+OpenClawKit is a Swift-native SDK aligned with the broader OpenClaw ecosystem design and practices.
 
-Huge credit to the OpenClaw maintainers and contributors for the upstream system design,
-feature set, and ongoing innovation in local agent runtime tooling.
-
-Upstream project:
+Upstream project inspiration:
 
 - https://github.com/openclaw/openclaw
 
 ## License
 
-OpenClawKit is released under the MIT License. See `LICENSE`.
+OpenClawKit is released under the MIT License. See [LICENSE](LICENSE).
 
