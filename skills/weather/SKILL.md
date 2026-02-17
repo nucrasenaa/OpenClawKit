@@ -1,8 +1,8 @@
 ---
 name: weather
 description: Fetch current conditions and today forecast using Open-Meteo.
-entrypoint: scripts/weather.py
-primaryEnv: python3
+entrypoint: scripts/weather.js
+primaryEnv: node
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -18,7 +18,8 @@ At least one of these combinations is required:
 - both `latitude` and `longitude`.
 
 Execution:
-- Run `python3 skills/weather/scripts/weather.py '<json>'`
+- Run `skills/weather/scripts/weather.js` through the OpenClaw skill engine.
+- Pass JSON input as the single argument (or `input` string in JS runtime).
 - The script uses free Open-Meteo endpoints and does not require an API key.
 
 Output contract (JSON):

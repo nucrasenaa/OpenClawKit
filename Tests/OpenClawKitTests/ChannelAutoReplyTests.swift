@@ -163,6 +163,154 @@ struct ChannelAutoReplyTests {
     }
 
     @Test
+    func autoReplyEngineInvokesWorkspaceWeatherSkillForNaturalLanguageRequests() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-skill-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let skillRoot = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("weather", isDirectory: true)
+        let scriptRoot = skillRoot.appendingPathComponent("scripts", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptRoot, withIntermediateDirectories: true)
+        try """
+        ---
+        name: weather
+        description: Weather helper
+        entrypoint: scripts/weather.sh
+        primaryEnv: sh
+        user-invocable: true
+        disable-model-invocation: false
+        ---
+
+        Use this skill for weather checks.
+        """.write(
+            to: skillRoot.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        #!/usr/bin/env sh
+        input="${1:-{}}"
+        printf '{"resolved_location":"San Diego, US","input":%s}\n' "$input"
+        """.write(
+            to: scriptRoot.appendingPathComponent("weather.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        await runtime.registerModelProvider(PromptEchoProvider())
+        try await runtime.setDefaultModelProviderID("prompt-echo")
+
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(
+                agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: root.path),
+                models: ModelsConfig(defaultProviderID: "prompt-echo")
+            ),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime
+        )
+
+        let outbound = try await engine.process(
+            InboundMessage(
+                channel: .webchat,
+                accountID: "user-1",
+                peerID: "peer",
+                text: "Can you check the weather in San Diego today?"
+            )
+        )
+
+        #expect(outbound.text.contains("## Skill Output (weather)"))
+        #expect(outbound.text.contains("resolved_location"))
+        #expect(outbound.text.contains("San Diego"))
+    }
+
+    @Test
+    func autoReplyEngineInvokesArbitrarySkillByNameReference() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-generic-skill-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let skillRoot = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("calendar-helper", isDirectory: true)
+        let scriptRoot = skillRoot.appendingPathComponent("scripts", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptRoot, withIntermediateDirectories: true)
+        try """
+        ---
+        name: calendar-helper
+        description: Generic helper
+        entrypoint: scripts/echo.sh
+        primaryEnv: sh
+        user-invocable: true
+        disable-model-invocation: false
+        ---
+
+        Use this skill for calendar helper requests.
+        """.write(
+            to: skillRoot.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        #!/usr/bin/env sh
+        input="${1:-}"
+        printf 'calendar-helper-output:%s\n' "$input"
+        """.write(
+            to: scriptRoot.appendingPathComponent("echo.sh"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        await runtime.registerModelProvider(PromptEchoProvider())
+        try await runtime.setDefaultModelProviderID("prompt-echo")
+
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(
+                agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: root.path),
+                models: ModelsConfig(defaultProviderID: "prompt-echo")
+            ),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime
+        )
+
+        let outbound = try await engine.process(
+            InboundMessage(
+                channel: .webchat,
+                accountID: "user-1",
+                peerID: "peer",
+                text: "Please use calendar helper to summarize Monday appointments"
+            )
+        )
+
+        #expect(outbound.text.contains("## Skill Output (calendar-helper)"))
+        #expect(outbound.text.contains("calendar-helper-output:"))
+        #expect(outbound.text.contains("Monday appointments"))
+    }
+
+    @Test
     func autoReplyEngineEmitsChannelDiagnostics() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-autoreply-diagnostics-tests", isDirectory: true)

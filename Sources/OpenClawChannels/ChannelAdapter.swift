@@ -2,6 +2,7 @@ import Foundation
 import OpenClawAgents
 import OpenClawCore
 import OpenClawMemory
+import OpenClawSkills
 
 /// Stable channel identifiers supported by channel adapters.
 public enum ChannelID: String, CaseIterable, Sendable {
@@ -266,9 +267,21 @@ public actor AutoReplyEngine {
             )
             try await store.save()
         }
+        let skillOutput = try await self.invokeSkillIfRequested(message.text)
+        if let skillOutput {
+            await self.emitDiagnostic(
+                name: "skill.invoked",
+                sessionKey: sessionKey,
+                metadata: [
+                    "skillName": skillOutput.skillName,
+                    "outputLength": String(skillOutput.output.count),
+                ]
+            )
+        }
         let runtimePrompt = Self.composeRuntimePrompt(
             memoryContext: memoryContext,
-            inboundText: message.text
+            inboundText: message.text,
+            skillOutput: skillOutput
         )
         await self.emitDiagnostic(
             name: "model.call.started",
@@ -330,12 +343,35 @@ public actor AutoReplyEngine {
         return outbound
     }
 
-    private static func composeRuntimePrompt(memoryContext: String, inboundText: String) -> String {
+    private static func composeRuntimePrompt(
+        memoryContext: String,
+        inboundText: String,
+        skillOutput: SkillInvocationResult?
+    ) -> String {
         let context = memoryContext.trimmingCharacters(in: .whitespacesAndNewlines)
-        if context.isEmpty {
+        let skillText = skillOutput?.output.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if context.isEmpty && skillText.isEmpty {
             return inboundText
         }
-        return "\(context)\n\n## New User Message\n\(inboundText)"
+
+        var sections: [String] = []
+        if !context.isEmpty {
+            sections.append(context)
+        }
+        if let skillOutput, !skillText.isEmpty {
+            sections.append("## Skill Output (\(skillOutput.skillName))\n\(skillText)")
+        }
+        sections.append("## New User Message\n\(inboundText)")
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func invokeSkillIfRequested(_ messageText: String) async throws -> SkillInvocationResult? {
+        let workspaceRoot = self.config.agents.workspaceRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !workspaceRoot.isEmpty else {
+            return nil
+        }
+        let invoker = SkillInvocationEngine(workspaceRoot: URL(fileURLWithPath: workspaceRoot, isDirectory: true))
+        return try await invoker.invokeIfRequested(message: messageText)
     }
 
     private func emitDiagnostic(name: String, sessionKey: String?, metadata: [String: String] = [:]) async {

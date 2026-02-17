@@ -262,6 +262,7 @@ final class OpenClawAppState: ObservableObject {
             try FileManager.default.createDirectory(at: self.stateRoot, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: self.workspaceURL, withIntermediateDirectories: true)
             try self.persistBootstrapFiles()
+            try self.syncProjectSkillsIntoWorkspace()
 
             let discordConfig = DiscordChannelConfig(
                 enabled: !self.discordBotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -646,6 +647,53 @@ final class OpenClawAppState: ObservableObject {
             return
         }
         try trimmed.write(to: soulURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Syncs repository skill folders into the iOS sandbox workspace.
+    private func syncProjectSkillsIntoWorkspace() throws {
+        guard let sourceSkillsRoot = Self.resolveProjectSkillsRoot(),
+              FileManager.default.fileExists(atPath: sourceSkillsRoot.path)
+        else {
+            return
+        }
+
+        let destinationSkillsRoot = self.workspaceURL.appendingPathComponent("skills", isDirectory: true)
+        try FileManager.default.createDirectory(at: destinationSkillsRoot, withIntermediateDirectories: true)
+        let sourceEntries = try FileManager.default.contentsOfDirectory(
+            at: sourceSkillsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        for sourceEntry in sourceEntries {
+            guard (try? sourceEntry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
+                continue
+            }
+            let destinationEntry = destinationSkillsRoot.appendingPathComponent(sourceEntry.lastPathComponent)
+            if FileManager.default.fileExists(atPath: destinationEntry.path) {
+                try FileManager.default.removeItem(at: destinationEntry)
+            }
+            try FileManager.default.copyItem(at: sourceEntry, to: destinationEntry)
+        }
+    }
+
+    /// Resolves the repository-level `skills` directory when running from source.
+    private static func resolveProjectSkillsRoot() -> URL? {
+        var current = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        for _ in 0..<10 {
+            let candidate = current.appendingPathComponent("skills", isDirectory: true)
+            let weatherMarker = candidate
+                .appendingPathComponent("weather", isDirectory: true)
+                .appendingPathComponent("SKILL.md")
+            if FileManager.default.fileExists(atPath: weatherMarker.path) {
+                return candidate
+            }
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+        return nil
     }
 }
 

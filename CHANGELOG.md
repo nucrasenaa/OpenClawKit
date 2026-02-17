@@ -15,6 +15,31 @@
 - Cross-platform socket probing in `PortUtils` now uses Linux-safe socket-type
   casting for Swift 6.2 compatibility.
 
+## 2026.1.2.2 - 2026-02-17
+
+### Fixed
+
+- Skill invocation now runs in the SDK runtime layer via
+  `SkillInvocationEngine`, instead of app-specific skill interfacing in the
+  iOS example.
+- Skill invocation matching is now generic for arbitrary workspace skills by
+  explicit command (`/skill <name>` and `/<name>`) and natural-language skill
+  name references.
+- iOS example deployment now syncs project `skills/` into the app sandbox
+  workspace so runtime skill discovery works consistently at deploy time.
+- Weather sample skill now uses a JavaScript entrypoint
+  (`skills/weather/scripts/weather.js`) so invocation behavior stays in-skill
+  and iOS-compatible.
+- Removed hardcoded sensitive defaults from iOS deploy settings
+  (`OpenClawAppState`) for Discord and model-provider credentials.
+
+### Tests
+
+- Added auto-reply coverage for generic arbitrary skill invocation by skill-name
+  references.
+- Added/updated weather skill invocation coverage through SDK skill execution
+  flow in channel auto-reply tests.
+
 ## 2026.1.2 - 2026-02-17
 
 ### Added
