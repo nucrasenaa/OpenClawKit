@@ -149,6 +149,11 @@ public actor ModelRouter {
         let selectedProvider: any ModelProvider
         if let requestedID, !requestedID.isEmpty, let provider = self.providers[requestedID] {
             selectedProvider = provider
+        } else if let fallbackID = request.metadata["fallbackProviderID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !fallbackID.isEmpty,
+                  let metadataFallback = self.providers[fallbackID]
+        {
+            selectedProvider = metadataFallback
         } else {
             selectedProvider = fallbackProvider
         }

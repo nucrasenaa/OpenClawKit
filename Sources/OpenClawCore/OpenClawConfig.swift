@@ -354,6 +354,9 @@ public struct ModelsConfig: Codable, Sendable, Equatable {
     public var defaultProviderID: String
     public var systemPrompt: String?
     public var openAI: OpenAIModelConfig
+    public var openAICompatible: OpenAICompatibleModelConfig
+    public var anthropic: AnthropicModelConfig
+    public var gemini: GeminiModelConfig
     public var foundation: FoundationModelConfig
     public var local: LocalModelConfig
 
@@ -362,20 +365,64 @@ public struct ModelsConfig: Codable, Sendable, Equatable {
     ///   - defaultProviderID: Default provider ID when none is specified.
     ///   - systemPrompt: Optional system prompt prefix.
     ///   - openAI: OpenAI provider settings.
+    ///   - openAICompatible: Generic OpenAI-compatible provider settings.
+    ///   - anthropic: Anthropic provider settings.
+    ///   - gemini: Gemini provider settings.
     ///   - foundation: Foundation Models settings.
     ///   - local: Local model settings.
     public init(
         defaultProviderID: String = "echo",
         systemPrompt: String? = nil,
         openAI: OpenAIModelConfig = OpenAIModelConfig(),
+        openAICompatible: OpenAICompatibleModelConfig = OpenAICompatibleModelConfig(),
+        anthropic: AnthropicModelConfig = AnthropicModelConfig(),
+        gemini: GeminiModelConfig = GeminiModelConfig(),
         foundation: FoundationModelConfig = FoundationModelConfig(),
         local: LocalModelConfig = LocalModelConfig()
     ) {
         self.defaultProviderID = defaultProviderID
         self.systemPrompt = systemPrompt
         self.openAI = openAI
+        self.openAICompatible = openAICompatible
+        self.anthropic = anthropic
+        self.gemini = gemini
         self.foundation = foundation
         self.local = local
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case defaultProviderID
+        case systemPrompt
+        case openAI
+        case openAICompatible
+        case anthropic
+        case gemini
+        case foundation
+        case local
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.defaultProviderID = try container.decodeIfPresent(String.self, forKey: .defaultProviderID) ?? "echo"
+        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt)
+        self.openAI = try container.decodeIfPresent(OpenAIModelConfig.self, forKey: .openAI) ?? OpenAIModelConfig()
+        self.openAICompatible = try container.decodeIfPresent(OpenAICompatibleModelConfig.self, forKey: .openAICompatible) ?? OpenAICompatibleModelConfig()
+        self.anthropic = try container.decodeIfPresent(AnthropicModelConfig.self, forKey: .anthropic) ?? AnthropicModelConfig()
+        self.gemini = try container.decodeIfPresent(GeminiModelConfig.self, forKey: .gemini) ?? GeminiModelConfig()
+        self.foundation = try container.decodeIfPresent(FoundationModelConfig.self, forKey: .foundation) ?? FoundationModelConfig()
+        self.local = try container.decodeIfPresent(LocalModelConfig.self, forKey: .local) ?? LocalModelConfig()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.defaultProviderID, forKey: .defaultProviderID)
+        try container.encodeIfPresent(self.systemPrompt, forKey: .systemPrompt)
+        try container.encode(self.openAI, forKey: .openAI)
+        try container.encode(self.openAICompatible, forKey: .openAICompatible)
+        try container.encode(self.anthropic, forKey: .anthropic)
+        try container.encode(self.gemini, forKey: .gemini)
+        try container.encode(self.foundation, forKey: .foundation)
+        try container.encode(self.local, forKey: .local)
     }
 }
 
@@ -397,6 +444,96 @@ public struct OpenAIModelConfig: Codable, Sendable, Equatable {
         modelID: String = "gpt-4.1-mini",
         apiKey: String? = nil,
         baseURL: String = "https://api.openai.com/v1"
+    ) {
+        self.enabled = enabled
+        self.modelID = modelID
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+    }
+}
+
+/// Generic OpenAI-compatible provider settings.
+public struct OpenAICompatibleModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var modelID: String
+    public var apiKey: String?
+    public var baseURL: String
+    public var chatCompletionsPath: String
+
+    /// Creates OpenAI-compatible provider settings.
+    /// - Parameters:
+    ///   - enabled: Enables the provider.
+    ///   - modelID: Model identifier.
+    ///   - apiKey: API key or bearer token.
+    ///   - baseURL: API base URL.
+    ///   - chatCompletionsPath: Relative chat completions endpoint path.
+    public init(
+        enabled: Bool = false,
+        modelID: String = "gpt-4.1-mini",
+        apiKey: String? = nil,
+        baseURL: String = "https://api.openai.com/v1",
+        chatCompletionsPath: String = "chat/completions"
+    ) {
+        self.enabled = enabled
+        self.modelID = modelID
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.chatCompletionsPath = chatCompletionsPath
+    }
+}
+
+/// Anthropic provider settings.
+public struct AnthropicModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var modelID: String
+    public var apiKey: String?
+    public var baseURL: String
+    public var apiVersion: String
+    public var maxTokens: Int
+
+    /// Creates Anthropic provider settings.
+    /// - Parameters:
+    ///   - enabled: Enables the provider.
+    ///   - modelID: Anthropic model identifier.
+    ///   - apiKey: Anthropic API key.
+    ///   - baseURL: Anthropic API base URL.
+    ///   - apiVersion: Anthropic API version header.
+    ///   - maxTokens: Maximum output tokens.
+    public init(
+        enabled: Bool = false,
+        modelID: String = "claude-3-5-haiku-latest",
+        apiKey: String? = nil,
+        baseURL: String = "https://api.anthropic.com/v1",
+        apiVersion: String = "2023-06-01",
+        maxTokens: Int = 512
+    ) {
+        self.enabled = enabled
+        self.modelID = modelID
+        self.apiKey = apiKey
+        self.baseURL = baseURL
+        self.apiVersion = apiVersion
+        self.maxTokens = max(1, maxTokens)
+    }
+}
+
+/// Gemini provider settings.
+public struct GeminiModelConfig: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var modelID: String
+    public var apiKey: String?
+    public var baseURL: String
+
+    /// Creates Gemini provider settings.
+    /// - Parameters:
+    ///   - enabled: Enables the provider.
+    ///   - modelID: Gemini model identifier.
+    ///   - apiKey: Gemini API key.
+    ///   - baseURL: Gemini API base URL.
+    public init(
+        enabled: Bool = false,
+        modelID: String = "gemini-2.0-flash",
+        apiKey: String? = nil,
+        baseURL: String = "https://generativelanguage.googleapis.com/v1beta"
     ) {
         self.enabled = enabled
         self.modelID = modelID
