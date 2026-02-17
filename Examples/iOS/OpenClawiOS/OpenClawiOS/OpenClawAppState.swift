@@ -115,6 +115,9 @@ final class OpenClawAppState: ObservableObject {
         var geminiAPIKey: String
         var selectedProvider: DeployProvider
         var selectedModelID: String
+        var defaultAgentID: String
+        var discordAgentID: String
+        var webchatAgentID: String
         var personality: String
 
         init(
@@ -127,6 +130,9 @@ final class OpenClawAppState: ObservableObject {
             geminiAPIKey: String,
             selectedProvider: DeployProvider,
             selectedModelID: String,
+            defaultAgentID: String,
+            discordAgentID: String,
+            webchatAgentID: String,
             personality: String
         ) {
             self.discordBotToken = discordBotToken
@@ -138,6 +144,9 @@ final class OpenClawAppState: ObservableObject {
             self.geminiAPIKey = geminiAPIKey
             self.selectedProvider = selectedProvider
             self.selectedModelID = selectedModelID
+            self.defaultAgentID = defaultAgentID
+            self.discordAgentID = discordAgentID
+            self.webchatAgentID = webchatAgentID
             self.personality = personality
         }
 
@@ -151,6 +160,9 @@ final class OpenClawAppState: ObservableObject {
             case geminiAPIKey
             case selectedProvider
             case selectedModelID
+            case defaultAgentID
+            case discordAgentID
+            case webchatAgentID
             case personality
         }
 
@@ -165,6 +177,9 @@ final class OpenClawAppState: ObservableObject {
             self.geminiAPIKey = try container.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
             self.selectedProvider = try container.decodeIfPresent(DeployProvider.self, forKey: .selectedProvider) ?? .openAI
             self.selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID) ?? self.selectedProvider.defaultModelID
+            self.defaultAgentID = try container.decodeIfPresent(String.self, forKey: .defaultAgentID) ?? "main"
+            self.discordAgentID = try container.decodeIfPresent(String.self, forKey: .discordAgentID) ?? ""
+            self.webchatAgentID = try container.decodeIfPresent(String.self, forKey: .webchatAgentID) ?? ""
             self.personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
         }
     }
@@ -178,6 +193,9 @@ final class OpenClawAppState: ObservableObject {
     @Published var geminiAPIKey: String = ""
     @Published var selectedProvider: DeployProvider = .openAI
     @Published var selectedModelID: String = DeployProvider.openAI.defaultModelID
+    @Published var defaultAgentID: String = "main"
+    @Published var discordAgentID: String = ""
+    @Published var webchatAgentID: String = ""
     @Published var personality: String = ""
     @Published var pendingMessage: String = ""
 
@@ -254,9 +272,10 @@ final class OpenClawAppState: ObservableObject {
                 mentionOnly: true
             )
             let modelsConfig = try self.makeModelsConfig()
+            let agentsConfig = self.makeAgentsConfig()
 
             let config = OpenClawConfig(
-                agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: self.workspaceURL.path),
+                agents: agentsConfig,
                 channels: ChannelsConfig(discord: discordConfig),
                 routing: RoutingConfig(
                     defaultSessionKey: self.sharedConversationSessionKey,
@@ -348,6 +367,34 @@ final class OpenClawAppState: ObservableObject {
         self.conversationMemoryStore = nil
         self.deploymentState = .stopped
         self.statusText = "Deployment stopped."
+    }
+
+    /// Builds model config from current deploy-provider selections.
+    private func makeAgentsConfig() -> AgentsConfig {
+        let resolvedDefaultAgentID = normalized(self.defaultAgentID) ?? "main"
+        var routeAgentMap: [String: String] = [:]
+
+        if let discordAgentID = normalized(self.discordAgentID) {
+            routeAgentMap[AgentsConfig.routeKey(channel: ChannelID.discord.rawValue)] = discordAgentID
+        }
+        if let webchatAgentID = normalized(self.webchatAgentID) {
+            routeAgentMap[AgentsConfig.routeKey(channel: ChannelID.webchat.rawValue)] = webchatAgentID
+        }
+
+        var agentIDs: Set<String> = [resolvedDefaultAgentID]
+        if let discordAgentID = normalized(self.discordAgentID) {
+            agentIDs.insert(discordAgentID)
+        }
+        if let webchatAgentID = normalized(self.webchatAgentID) {
+            agentIDs.insert(webchatAgentID)
+        }
+
+        return AgentsConfig(
+            defaultAgentID: resolvedDefaultAgentID,
+            workspaceRoot: self.workspaceURL.path,
+            agentIDs: agentIDs.sorted(),
+            routeAgentMap: routeAgentMap
+        )
     }
 
     /// Builds model config from current deploy-provider selections.
@@ -554,9 +601,15 @@ final class OpenClawAppState: ObservableObject {
         self.geminiAPIKey = settings.geminiAPIKey
         self.selectedProvider = settings.selectedProvider
         self.selectedModelID = settings.selectedModelID
+        self.defaultAgentID = settings.defaultAgentID
+        self.discordAgentID = settings.discordAgentID
+        self.webchatAgentID = settings.webchatAgentID
         self.personality = settings.personality
         if self.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.selectedModelID = self.selectedProvider.defaultModelID
+        }
+        if self.defaultAgentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.defaultAgentID = "main"
         }
     }
 
@@ -572,6 +625,9 @@ final class OpenClawAppState: ObservableObject {
             geminiAPIKey: self.geminiAPIKey,
             selectedProvider: self.selectedProvider,
             selectedModelID: self.selectedModelID,
+            defaultAgentID: self.defaultAgentID,
+            discordAgentID: self.discordAgentID,
+            webchatAgentID: self.webchatAgentID,
             personality: self.personality
         )
         let data = try self.encoder.encode(settings)

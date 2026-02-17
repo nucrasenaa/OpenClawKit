@@ -63,6 +63,18 @@ struct DeployView: View {
                     }
                 }
 
+                Section("Agent Routing") {
+                    TextField("Default Agent ID", text: $appState.defaultAgentID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Discord Agent ID (optional)", text: $appState.discordAgentID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Webchat Agent ID (optional)", text: $appState.webchatAgentID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+
                 Section("Agent Personality") {
                     TextEditor(text: $appState.personality)
                         .frame(minHeight: 120)

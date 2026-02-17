@@ -78,14 +78,96 @@ public struct GatewayConfig: Codable, Sendable, Equatable {
 public struct AgentsConfig: Codable, Sendable, Equatable {
     public var defaultAgentID: String
     public var workspaceRoot: String
+    public var agentIDs: [String]
+    public var routeAgentMap: [String: String]
 
     /// Creates agent defaults.
     /// - Parameters:
     ///   - defaultAgentID: Default agent identifier.
     ///   - workspaceRoot: Workspace root path.
-    public init(defaultAgentID: String = "main", workspaceRoot: String = "./workspace") {
+    ///   - agentIDs: Declared agent identifiers available at runtime.
+    ///   - routeAgentMap: Route mapping table (`channel[:accountID[:peerID]] -> agentID`).
+    public init(
+        defaultAgentID: String = "main",
+        workspaceRoot: String = "./workspace",
+        agentIDs: [String] = [],
+        routeAgentMap: [String: String] = [:]
+    ) {
         self.defaultAgentID = defaultAgentID
         self.workspaceRoot = workspaceRoot
+        var normalizedAgentIDs = Set(agentIDs.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        normalizedAgentIDs.insert(defaultAgentID)
+        self.agentIDs = normalizedAgentIDs.sorted()
+        self.routeAgentMap = routeAgentMap
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case defaultAgentID
+        case workspaceRoot
+        case agentIDs
+        case routeAgentMap
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaultAgentID = try container.decodeIfPresent(String.self, forKey: .defaultAgentID) ?? "main"
+        let workspaceRoot = try container.decodeIfPresent(String.self, forKey: .workspaceRoot) ?? "./workspace"
+        let agentIDs = try container.decodeIfPresent([String].self, forKey: .agentIDs) ?? []
+        let routeAgentMap = try container.decodeIfPresent([String: String].self, forKey: .routeAgentMap) ?? [:]
+        self.init(
+            defaultAgentID: defaultAgentID,
+            workspaceRoot: workspaceRoot,
+            agentIDs: agentIDs,
+            routeAgentMap: routeAgentMap
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.defaultAgentID, forKey: .defaultAgentID)
+        try container.encode(self.workspaceRoot, forKey: .workspaceRoot)
+        try container.encode(self.agentIDs, forKey: .agentIDs)
+        try container.encode(self.routeAgentMap, forKey: .routeAgentMap)
+    }
+
+    /// Creates a route map key for channel/account/peer matching.
+    /// - Parameters:
+    ///   - channel: Channel identifier.
+    ///   - accountID: Optional account identifier.
+    ///   - peerID: Optional peer identifier.
+    /// - Returns: Canonical route key.
+    public static func routeKey(channel: String, accountID: String? = nil, peerID: String? = nil) -> String {
+        [channel, accountID, peerID]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ":")
+    }
+
+    /// Resolves the effective agent ID for the provided routing context.
+    /// - Parameter context: Routing context for inbound message/session.
+    /// - Returns: Mapped or default agent identifier.
+    public func resolvedAgentID(for context: SessionRoutingContext) -> String {
+        let channel = context.channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let accountID = context.accountID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let peerID = context.peerID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidateKeys = [
+            Self.routeKey(channel: channel, accountID: accountID, peerID: peerID),
+            Self.routeKey(channel: channel, accountID: accountID, peerID: nil),
+            Self.routeKey(channel: channel),
+        ].filter { !$0.isEmpty }
+
+        let available = Set(self.agentIDs)
+        for key in candidateKeys {
+            guard let mapped = self.routeAgentMap[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !mapped.isEmpty
+            else {
+                continue
+            }
+            if available.isEmpty || available.contains(mapped) {
+                return mapped
+            }
+        }
+        return self.defaultAgentID
     }
 }
 

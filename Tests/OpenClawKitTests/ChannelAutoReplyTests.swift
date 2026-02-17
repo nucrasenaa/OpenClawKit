@@ -62,6 +62,49 @@ struct ChannelAutoReplyTests {
     }
 
     @Test
+    func autoReplyEngineUsesMappedAgentForRoute() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-agent-route-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+
+        let config = OpenClawConfig(
+            agents: AgentsConfig(
+                defaultAgentID: "main",
+                workspaceRoot: "./workspace",
+                agentIDs: ["main", "support"],
+                routeAgentMap: [
+                    AgentsConfig.routeKey(channel: "whatsapp"): "support",
+                ]
+            )
+        )
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let whatsapp = InMemoryChannelAdapter(id: .whatsapp)
+        await registry.register(whatsapp)
+        try await whatsapp.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        let engine = AutoReplyEngine(
+            config: config,
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime
+        )
+        let inbound = InboundMessage(channel: .whatsapp, accountID: "default", peerID: "555123", text: "hi")
+        _ = try await engine.process(inbound)
+
+        let key = SessionKeyResolver.resolve(
+            explicit: nil,
+            context: SessionRoutingContext(channel: "whatsapp", accountID: "default", peerID: "555123"),
+            config: config
+        )
+        let record = await sessionStore.recordForKey(key)
+        #expect(record?.agentID == "support")
+    }
+
+    @Test
     func autoReplyEngineInjectsPersistentConversationContext() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-autoreply-memory-tests", isDirectory: true)

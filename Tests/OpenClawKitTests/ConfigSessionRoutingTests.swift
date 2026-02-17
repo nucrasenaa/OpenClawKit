@@ -124,6 +124,32 @@ struct ConfigSessionRoutingTests {
     }
 
     @Test
+    func agentsConfigResolvesRouteMappedAgentIDs() {
+        let agents = AgentsConfig(
+            defaultAgentID: "main",
+            workspaceRoot: "./workspace",
+            agentIDs: ["main", "discord-agent", "ios-agent"],
+            routeAgentMap: [
+                AgentsConfig.routeKey(channel: "discord"): "discord-agent",
+                AgentsConfig.routeKey(channel: "webchat", accountID: "ios-user", peerID: "peer-1"): "ios-agent",
+            ]
+        )
+        let discordAgent = agents.resolvedAgentID(
+            for: SessionRoutingContext(channel: "discord", accountID: "123", peerID: "abc")
+        )
+        let iosAgent = agents.resolvedAgentID(
+            for: SessionRoutingContext(channel: "webchat", accountID: "ios-user", peerID: "peer-1")
+        )
+        let fallbackAgent = agents.resolvedAgentID(
+            for: SessionRoutingContext(channel: "telegram", accountID: "u1", peerID: "p1")
+        )
+
+        #expect(discordAgent == "discord-agent")
+        #expect(iosAgent == "ios-agent")
+        #expect(fallbackAgent == "main")
+    }
+
+    @Test
     func sessionStoreResolveOrCreateTracksRoute() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-session-tests", isDirectory: true)
@@ -139,6 +165,13 @@ struct ConfigSessionRoutingTests {
         )
         #expect(created.agentID == "main")
         #expect(created.lastRoute?.channel == "telegram")
+
+        let updated = await store.resolveOrCreate(
+            sessionKey: "telegram:default:1234",
+            defaultAgentID: "support",
+            route: SessionRoute(channel: "telegram", accountID: "default", peerID: "1234")
+        )
+        #expect(updated.agentID == "support")
 
         try await store.save()
         let reloaded = SessionStore(fileURL: path)

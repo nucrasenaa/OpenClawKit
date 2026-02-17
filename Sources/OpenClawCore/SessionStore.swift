@@ -182,6 +182,7 @@ public actor SessionStore {
     ) -> SessionRecord {
         if var existing = self.records[sessionKey] {
             existing.updatedAtMs = nowMs()
+            existing.agentID = defaultAgentID
             if let route {
                 existing.lastRoute = route
             }

@@ -214,10 +214,11 @@ public actor AutoReplyEngine {
             context: routingContext,
             config: self.config
         )
+        let resolvedAgentID = self.config.agents.resolvedAgentID(for: routingContext)
 
         _ = await self.sessionStore.resolveOrCreate(
             sessionKey: sessionKey,
-            defaultAgentID: self.config.agents.defaultAgentID,
+            defaultAgentID: resolvedAgentID,
             route: SessionRoute(
                 channel: message.channel.rawValue,
                 accountID: message.accountID,
