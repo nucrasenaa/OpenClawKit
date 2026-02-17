@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026.2.1.1 - 2026-02-17
+
+### Fixed
+
+- GitHub Actions Swift validation now consistently provisions the Swift 6.2.0
+  toolchain required by the package tools version.
+- CI Swift setup is hardened against transient upstream signing-key fetch issues
+  by using resilient setup options in workflow configuration.
+- Linux compatibility is restored for HTTP model/channel providers by adding the
+  required conditional `FoundationNetworking` imports.
+- Linux test builds are fixed by adding conditional `FoundationNetworking`
+  imports in networking-heavy test suites that mock `URLRequest`.
+- Cross-platform socket probing in `PortUtils` now uses Linux-safe socket-type
+  casting for Swift 6.2 compatibility.
+
 ## 2026.1.2 - 2026-02-17
 
 ### Added
