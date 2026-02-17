@@ -134,4 +134,68 @@ struct SkillRegistryTests {
         #expect(result.output.contains("## User Request"))
         #expect(result.output.contains("Forecast for today?"))
     }
+
+    @Test
+    func resolvesSkillEntrypointWhenDefinedInFrontmatter() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let skillRoot = root.appendingPathComponent("skills").appendingPathComponent("weather")
+        let skillFile = skillRoot.appendingPathComponent("SKILL.md")
+        let scriptFile = skillRoot.appendingPathComponent("scripts").appendingPathComponent("weather.py")
+        try FileManager.default.createDirectory(at: scriptFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try """
+        # weather helper
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+        try """
+        ---
+        name: weather
+        description: Weather utility
+        entrypoint: scripts/weather.py
+        ---
+
+        Use this skill for forecasts.
+        """.write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let registry = SkillRegistry(workspaceRoot: root)
+        let skills = try await registry.loadSkills()
+        let weather = try #require(skills.first(where: { $0.name == "weather" }))
+        let entrypoint = try await registry.resolveEntrypoint(for: weather)
+
+        #expect(entrypoint?.path == scriptFile.path)
+    }
+
+    @Test
+    func rejectsEntrypointTraversalOutsideSkillDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let skillRoot = root.appendingPathComponent("skills").appendingPathComponent("weather")
+        let skillFile = skillRoot.appendingPathComponent("SKILL.md")
+        try FileManager.default.createDirectory(at: skillRoot, withIntermediateDirectories: true)
+        try """
+        ---
+        name: weather
+        description: Weather utility
+        entrypoint: ../outside.py
+        ---
+
+        Use this skill for forecasts.
+        """.write(to: skillFile, atomically: true, encoding: .utf8)
+
+        let registry = SkillRegistry(workspaceRoot: root)
+        let skills = try await registry.loadSkills()
+        let weather = try #require(skills.first(where: { $0.name == "weather" }))
+
+        do {
+            _ = try await registry.resolveEntrypoint(for: weather)
+            Issue.record("Expected path traversal rejection")
+        } catch {
+            #expect(String(describing: error).lowercased().contains("skill directory"))
+        }
+    }
 }

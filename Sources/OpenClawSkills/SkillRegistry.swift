@@ -54,6 +54,30 @@ public actor SkillRegistry {
         return SkillPromptSnapshot(prompt: prompt, skills: skills)
     }
 
+    /// Resolves an optional script entrypoint declared in skill frontmatter.
+    /// - Parameter skill: Parsed skill definition.
+    /// - Returns: Absolute entrypoint URL when configured.
+    public func resolveEntrypoint(for skill: SkillDefinition) throws -> URL? {
+        guard let rawEntrypoint = self.entrypointValue(for: skill) else {
+            return nil
+        }
+        let skillDirectory = URL(fileURLWithPath: skill.filePath)
+            .deletingLastPathComponent()
+            .standardizedFileURL
+        let resolved = URL(fileURLWithPath: rawEntrypoint, relativeTo: skillDirectory)
+            .standardizedFileURL
+        let allowedPrefix = skillDirectory.path.hasSuffix("/")
+            ? skillDirectory.path
+            : skillDirectory.path + "/"
+        guard resolved.path == skillDirectory.path || resolved.path.hasPrefix(allowedPrefix) else {
+            throw OpenClawCoreError.invalidConfiguration("Skill entrypoint must stay within skill directory")
+        }
+        guard FileManager.default.fileExists(atPath: resolved.path) else {
+            throw OpenClawCoreError.invalidConfiguration("Skill entrypoint does not exist: \(resolved.path)")
+        }
+        return resolved
+    }
+
     private func orderedLocations() -> [(source: SkillSource, dir: URL)] {
         let home = OpenClawFileSystem.resolveHomeDirectory()
         var list: [(SkillSource, URL)] = []
@@ -129,10 +153,23 @@ public actor SkillRegistry {
             if !skill.description.isEmpty {
                 lines.append(skill.description)
             }
+            if let entrypoint = self.entrypointValue(for: skill) {
+                lines.append("Entrypoint: \(entrypoint)")
+            }
             if !skill.body.isEmpty {
                 lines.append(skill.body)
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func entrypointValue(for skill: SkillDefinition) -> String? {
+        let keys = ["entrypoint", "script", "run"]
+        for key in keys {
+            if let value = skill.frontmatter[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 }

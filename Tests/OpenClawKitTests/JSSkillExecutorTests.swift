@@ -51,6 +51,47 @@ struct JSSkillExecutorTests {
         let filePath = root.appendingPathComponent("state").appendingPathComponent("result.txt").path
         #expect(FileManager.default.fileExists(atPath: filePath))
     }
+
+    @Test
+    func executesScriptFileWithinWorkspace() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptDir = root.appendingPathComponent("skills").appendingPathComponent("weather")
+        try FileManager.default.createDirectory(at: scriptDir, withIntermediateDirectories: true)
+        let scriptFile = scriptDir.appendingPathComponent("skill.js")
+        try """
+        log("running weather script");
+        return "weather-ok";
+        """.write(to: scriptFile, atomically: true, encoding: .utf8)
+
+        let executor = try JSSkillExecutor(workspaceRoot: root)
+        let result = try await executor.executeFile(scriptPath: "skills/weather/skill.js")
+        #expect(result.output == "weather-ok")
+        #expect(result.logs.contains(where: { $0.contains("running weather script") }))
+    }
+
+    @Test
+    func rejectsUnsupportedHttpGetScheme() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let executor = try JSSkillExecutor(workspaceRoot: root)
+        do {
+            _ = try await executor.execute(script: """
+            const body = httpGet("ftp://example.com");
+            return body;
+            """)
+            Issue.record("Expected unsupported scheme failure")
+        } catch {
+            let message = String(describing: error).lowercased()
+            #expect(message.contains("http") && message.contains("supports"))
+        }
+    }
 }
 #else
 @Suite("JavaScript skill executor")

@@ -32,6 +32,17 @@ public actor JSSkillExecutor {
         self.pathGuard = try WorkspacePathGuard(workspaceRoot: workspaceRoot)
     }
 
+    /// Executes a JavaScript file from within the workspace path jail.
+    /// - Parameters:
+    ///   - scriptPath: Relative script path from workspace root.
+    ///   - input: Optional input payload exposed as `input`.
+    /// - Returns: Script output and captured logs.
+    public func executeFile(scriptPath: String, input: String = "") throws -> JSSkillExecutionResult {
+        let resolved = try self.pathGuard.resolve(scriptPath)
+        let script = try String(contentsOf: resolved, encoding: .utf8)
+        return try self.execute(script: script, input: input)
+    }
+
     /// Executes JavaScript inside a restricted host API surface.
     /// - Parameters:
     ///   - script: JavaScript body to execute.
@@ -106,6 +117,24 @@ public actor JSSkillExecutor {
             }
         }
         context.setObject(exists, forKeyedSubscript: "exists" as NSString)
+
+        let httpGet: @convention(block) (String) -> String = { rawURL in
+            do {
+                let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let url = URL(string: trimmed),
+                      let scheme = url.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https"
+                else {
+                    throw OpenClawCoreError.invalidConfiguration("httpGet only supports http/https URLs")
+                }
+                let data = try Data(contentsOf: url)
+                return String(decoding: data, as: UTF8.self)
+            } catch {
+                executionError = error
+                return ""
+            }
+        }
+        context.setObject(httpGet, forKeyedSubscript: "httpGet" as NSString)
 
         context.setObject(input, forKeyedSubscript: "__oc_input" as NSString)
         let wrapped = """
