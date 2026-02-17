@@ -98,7 +98,7 @@ struct JSSkillExecutorTests {
 struct JSSkillExecutorTests {
     @Test
     func skippedWhenJavaScriptCoreUnavailable() {
-        #expect(true)
+        #expect(Bool(true))
     }
 }
 #endif
