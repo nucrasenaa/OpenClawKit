@@ -20,5 +20,22 @@ struct ChannelAdaptersE2ETests {
         #expect(ids.contains("imessage"))
         #expect(ids.contains("line"))
     }
+
+    @Test
+    func registryDispatchesOutboundToTelegramAdapter() async throws {
+        let registry = ChannelRegistry()
+        let telegram = InMemoryChannelAdapter(id: .telegram)
+        await registry.register(telegram)
+        try await telegram.start()
+
+        try await registry.send(
+            OutboundMessage(channel: .telegram, accountID: "default", peerID: "123", text: "ping")
+        )
+
+        let sent = await telegram.sentMessages()
+        #expect(sent.count == 1)
+        #expect(sent.first?.channel == .telegram)
+        #expect(sent.first?.text == "ping")
+    }
 }
 
