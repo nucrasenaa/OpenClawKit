@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenClawCore
 
 /// HTTP transport contract used by Anthropic model provider.
@@ -74,15 +77,15 @@ public struct AnthropicModelProvider: ModelProvider {
         guard self.configuration.enabled else {
             throw OpenClawCoreError.unavailable("Anthropic model provider is disabled")
         }
-        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("Anthropic API key is required")
         }
         let endpoint = try self.resolveEndpoint()
-        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         let selectedModel = (requestedModel?.isEmpty == false) ? requestedModel! : self.configuration.modelID
         let normalizedSystemPrompt: String?
-        if let systemPrompt = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !systemPrompt.isEmpty {
+        if let systemPrompt = request.systemPrompt?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines), !systemPrompt.isEmpty {
             normalizedSystemPrompt = systemPrompt
         } else {
             normalizedSystemPrompt = nil
@@ -108,7 +111,7 @@ public struct AnthropicModelProvider: ModelProvider {
         }
 
         let decoded = try JSONDecoder().decode(AnthropicMessagesResponse.self, from: response.body)
-        guard let text = decoded.content.first(where: { $0.type == "text" })?.text?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let text = decoded.content.first(where: { $0.type == "text" })?.text?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !text.isEmpty
         else {
             throw OpenClawCoreError.unavailable("Anthropic response did not include text content")
@@ -122,7 +125,7 @@ public struct AnthropicModelProvider: ModelProvider {
     }
 
     private func resolveEndpoint() throws -> URL {
-        let baseRaw = self.configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseRaw = self.configuration.baseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !baseRaw.isEmpty, let baseURL = URL(string: baseRaw) else {
             throw OpenClawCoreError.invalidConfiguration("Anthropic base URL is invalid")
         }

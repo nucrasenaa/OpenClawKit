@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenClawCore
 
 /// HTTP transport contract used by OpenAI-compatible model providers.
@@ -69,13 +72,13 @@ public struct OpenAICompatibleModelProvider: ModelProvider {
         guard self.configuration.enabled else {
             throw OpenClawCoreError.unavailable("OpenAI-compatible provider is disabled")
         }
-        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("OpenAI-compatible API key is required")
         }
 
         let endpoint = try self.resolveEndpoint()
-        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         let selectedModel = (requestedModel?.isEmpty == false) ? requestedModel! : self.configuration.modelID
         let payload = OpenAICompatibleChatCompletionRequest(
             model: selectedModel,
@@ -94,7 +97,7 @@ public struct OpenAICompatibleModelProvider: ModelProvider {
         }
 
         let decoded = try JSONDecoder().decode(OpenAICompatibleChatCompletionResponse.self, from: response.body)
-        guard let content = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let content = decoded.choices.first?.message.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !content.isEmpty
         else {
             throw OpenClawCoreError.unavailable("OpenAI-compatible response did not include message content")
@@ -108,7 +111,7 @@ public struct OpenAICompatibleModelProvider: ModelProvider {
 
     private func buildMessages(from request: ModelGenerationRequest) -> [OpenAICompatibleChatMessage] {
         var messages: [OpenAICompatibleChatMessage] = []
-        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         if !systemPrompt.isEmpty {
             messages.append(OpenAICompatibleChatMessage(role: "system", content: systemPrompt))
         }
@@ -117,13 +120,13 @@ public struct OpenAICompatibleModelProvider: ModelProvider {
     }
 
     private func resolveEndpoint() throws -> URL {
-        let rawBase = self.configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawBase = self.configuration.baseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !rawBase.isEmpty, let baseURL = URL(string: rawBase) else {
             throw OpenClawCoreError.invalidConfiguration("OpenAI-compatible base URL is invalid")
         }
 
         let path = self.configuration.chatCompletionsPath
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !path.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("OpenAI-compatible chat path is required")

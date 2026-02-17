@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenClawCore
 
 /// Minimal HTTP transport contract used by the Discord adapter.

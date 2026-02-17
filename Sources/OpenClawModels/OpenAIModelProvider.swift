@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenClawCore
 
 /// OpenAI-backed model provider using the chat completions API.
@@ -33,19 +36,19 @@ public struct OpenAIModelProvider: ModelProvider {
         guard self.configuration.enabled else {
             throw OpenClawCoreError.unavailable("OpenAI model provider is disabled")
         }
-        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("OpenAI API key is required")
         }
 
-        let base = self.configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = self.configuration.baseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard let baseURL = URL(string: base), !base.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("OpenAI base URL is invalid")
         }
 
         let endpoint = baseURL.appendingPathComponent("chat").appendingPathComponent("completions")
         var messages: [OpenAIChatMessage] = []
-        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         if !systemPrompt.isEmpty {
             messages.append(OpenAIChatMessage(role: "system", content: systemPrompt))
         }
@@ -68,7 +71,7 @@ public struct OpenAIModelProvider: ModelProvider {
         }
 
         let decoded = try JSONDecoder().decode(OpenAIChatCompletionResponse.self, from: response.body)
-        guard let content = decoded.choices.first?.message.content.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let content = decoded.choices.first?.message.content.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines),
               !content.isEmpty
         else {
             throw OpenClawCoreError.unavailable("OpenAI response did not include message content")

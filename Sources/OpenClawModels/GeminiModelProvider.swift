@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenClawCore
 
 /// HTTP transport contract used by Gemini model provider.
@@ -73,11 +76,11 @@ public struct GeminiModelProvider: ModelProvider {
         guard self.configuration.enabled else {
             throw OpenClawCoreError.unavailable("Gemini model provider is disabled")
         }
-        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let apiKey = self.configuration.apiKey?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else {
             throw OpenClawCoreError.invalidConfiguration("Gemini API key is required")
         }
-        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedModel = request.metadata["model"]?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         let modelID = (requestedModel?.isEmpty == false) ? requestedModel! : self.configuration.modelID
         let endpoint = try self.resolveEndpoint(modelID: modelID, apiKey: apiKey)
         let payload = GeminiGenerateContentRequest(contents: [self.buildContent(from: request)])
@@ -97,7 +100,7 @@ public struct GeminiModelProvider: ModelProvider {
         guard let rawText = decoded.candidates?.first?.content?.parts.first?.text else {
             throw OpenClawCoreError.unavailable("Gemini response did not include generated text")
         }
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = rawText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !text.isEmpty
         else {
             throw OpenClawCoreError.unavailable("Gemini response did not include generated text")
@@ -107,7 +110,7 @@ public struct GeminiModelProvider: ModelProvider {
     }
 
     private func buildContent(from request: ModelGenerationRequest) -> GeminiGenerateContentRequest.Content {
-        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let systemPrompt = request.systemPrompt?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) ?? ""
         let prompt: String
         if systemPrompt.isEmpty {
             prompt = request.prompt
@@ -121,7 +124,7 @@ public struct GeminiModelProvider: ModelProvider {
     }
 
     private func resolveEndpoint(modelID: String, apiKey: String) throws -> URL {
-        let baseRaw = self.configuration.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseRaw = self.configuration.baseURL.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !baseRaw.isEmpty, let baseURL = URL(string: baseRaw) else {
             throw OpenClawCoreError.invalidConfiguration("Gemini base URL is invalid")
         }
