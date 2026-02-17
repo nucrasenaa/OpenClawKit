@@ -1,5 +1,50 @@
 # Changelog
 
+## 2026.1.2 - 2026-02-17
+
+### Added
+
+- GitHub Actions CI/CD foundation with `ci.yml`, `security.yml`, and tag-driven
+  `release.yml` workflows for build/test/security/release automation.
+- Telegram channel adapter with polling lifecycle, mention gating, typing signal,
+  outbound delivery, and deterministic transport-mocked tests.
+- WhatsApp Cloud API adapter with send endpoint integration, webhook verification
+  + event ingestion support, and deterministic transport-mocked tests.
+- Model-provider expansion with OpenAI-compatible, Anthropic, and Gemini
+  providers plus expanded provider configuration blocks.
+- iOS deploy-time provider/model selection and persisted credentials for OpenAI,
+  OpenAI-compatible, Anthropic, Gemini, and Foundation provider modes.
+- Weather skill example at `skills/weather` using free Open-Meteo APIs and a
+  no-dependency Python script entrypoint.
+- Multi-agent-lite config and routing with named agent IDs and route maps
+  (`channel[:account[:peer]] -> agent`) plus iOS agent routing controls.
+- Structured channel diagnostics events for ingress/routing/model-call/egress
+  phases to improve runtime observability.
+
+### Changed
+
+- `OpenClawConfig` is now default-decode resilient across top-level, channel,
+  model, and agent sections for backward-compatible config evolution.
+- Session resolution now updates stored agent binding when route mapping changes,
+  enabling lightweight per-route agent assignment.
+- Conversation memory prompt formatting now uses explicit trust boundaries and
+  escapes unsafe markup tokens before injection into model prompts.
+- Skill registry prompt snapshots now surface script entrypoint hints and
+  enforce safe entrypoint resolution within each skill directory.
+
+### Tests
+
+- Expanded adapter coverage with Telegram and WhatsApp adapter suites plus
+  additional channel registry dispatch E2E tests.
+- Expanded model routing coverage for OpenAI-compatible, Anthropic, Gemini, and
+  metadata fallback provider behavior.
+- Added iOS build-gate-compatible tests for multi-agent route mapping and
+  auto-reply mapped-agent session binding.
+- Added skill runtime tests for script-file execution, HTTP helper guards, and
+  skill entrypoint traversal prevention.
+- Added conversation memory hardening tests for escaping and context-boundary
+  formatting.
+
 ## 2026.1.1.1 - 2026-02-15
 
 ### Fixed
