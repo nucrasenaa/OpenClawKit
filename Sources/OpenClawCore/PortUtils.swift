@@ -26,7 +26,12 @@ public enum PortUtils {
     /// Ensures a TCP port can be bound on the local host.
     /// - Parameter port: Port to probe.
     public static func ensurePortAvailable(_ port: Int) throws {
-        let fd = socket(AF_INET, Int32(SOCK_STREAM), 0)
+        #if os(Linux)
+        let streamSocketType = Int32(SOCK_STREAM.rawValue)
+        #else
+        let streamSocketType = Int32(SOCK_STREAM)
+        #endif
+        let fd = socket(AF_INET, streamSocketType, 0)
         guard fd >= 0 else {
             throw OpenClawCoreError.unavailable("Unable to create socket for port check")
         }
