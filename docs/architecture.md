@@ -14,6 +14,7 @@ while exposing a simple top-level facade.
    - Cross-platform shims (crypto/network/security/process/fs)
    - Config and session persistence
    - Cron, hooks, and security runtime state
+   - Diagnostics and usage aggregation (`RuntimeDiagnosticsPipeline`)
 
 3. `OpenClawGateway`
    - Actor-safe transport client
@@ -23,6 +24,7 @@ while exposing a simple top-level facade.
 4. `OpenClawAgents`
    - Tool registry and runtime lifecycle events
    - Timeout-aware run execution and orchestration
+   - Structured runtime diagnostics emission (`run.*`, `model.call.*`)
 
 5. `OpenClawPlugins`
    - Static plugin API (Swift protocols, no runtime JS loading)
@@ -31,6 +33,7 @@ while exposing a simple top-level facade.
 6. `OpenClawChannels`
    - Channel adapters and outbound routing
    - Auto-reply engine integrating sessions + runtime execution
+   - Delivery health snapshots, retry/backoff policy, and command handlers
 
 7. `OpenClawMemory` and `OpenClawMedia`
    - Memory indexing/search primitives
@@ -46,6 +49,16 @@ while exposing a simple top-level facade.
 - Public model types are `Sendable`.
 - Cross-task callbacks are `@Sendable`.
 - Networking safety is validated by `Scripts/check-networking-concurrency.sh`.
+
+## Observability Flow
+
+`AutoReplyEngine` and `EmbeddedAgentRuntime` emit `RuntimeDiagnosticEvent` payloads
+into an injected `RuntimeDiagnosticSink`. Host apps can plug a
+`RuntimeDiagnosticsPipeline` sink to:
+
+- retain recent event timelines (`recentEvents(limit:)`)
+- inspect aggregate usage (`usageSnapshot()`)
+- power app-level diagnostics surfaces (for example, the expanded iOS sample tabs)
 
 ## Feature Implementation Guidance
 

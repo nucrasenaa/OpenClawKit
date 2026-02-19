@@ -19,6 +19,7 @@ It ships actor-safe runtime primitives, channel adapters, model routing, skill e
 - Built-in model providers: OpenAI, OpenAI-compatible, Anthropic, Gemini, Foundation Models, local, and echo
 - Channel runtime with Discord, Telegram, WhatsApp Cloud, and local webchat adapter flow
 - Workspace skills system (`SKILL.md` + script entrypoints) with generic runtime invocation
+- Centralized diagnostics/usage pipeline with runtime + channel telemetry snapshots
 - Strong test and CI posture: Swift Testing unit/E2E suites, Linux validation, iOS build gates, security scans
 
 ## Table of Contents
@@ -27,6 +28,7 @@ It ships actor-safe runtime primitives, channel adapters, model routing, skill e
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Skills and Tooling](#skills-and-tooling)
+- [Observability and Usage Metrics](#observability-and-usage-metrics)
 - [iOS Example App](#ios-example-app)
 - [Package Modules](#package-modules)
 - [Testing and Quality Gates](#testing-and-quality-gates)
@@ -82,14 +84,17 @@ import OpenClawKit
 let sdk = OpenClawSDK.shared
 let config = OpenClawConfig()
 let sessionsURL = URL(fileURLWithPath: "./state/sessions.json")
+let diagnostics = sdk.makeDiagnosticsPipeline(eventLimit: 300)
 
 let outbound = try await sdk.getReplyFromConfig(
     config: config,
     sessionStoreURL: sessionsURL,
-    inbound: InboundMessage(channel: .webchat, peerID: "user-1", text: "Hello there")
+    inbound: InboundMessage(channel: .webchat, peerID: "user-1", text: "Hello there"),
+    diagnosticsPipeline: diagnostics
 )
 
 print(outbound.text)
+print(await diagnostics.usageSnapshot().runsCompleted)
 ```
 
 This flow gives you:
@@ -113,13 +118,29 @@ Sample weather skill:
 - Definition: `skills/weather/SKILL.md`
 - Entrypoint: `skills/weather/scripts/weather.js`
 
+## Observability and Usage Metrics
+
+OpenClawKit includes a centralized telemetry actor:
+
+- `RuntimeDiagnosticsPipeline` for retaining recent diagnostics events
+- `usageSnapshot()` for aggregate run/model/skill/channel counters and latency totals
+- `recentEvents(limit:)` for timeline-driven app UX
+
+Runtime and auto-reply flows emit stable diagnostics names (`run.started`,
+`model.call.completed`, `skill.invoked`, `outbound.sent`, `outbound.failed`, etc.)
+that can be consumed directly by host apps.
+
 ## iOS Example App
 
 A complete iOS sample app is included:
 
 - Project: `Examples/iOS/OpenClawiOS`
-- Deploy tab: provider selection, model routing, channel credentials, agent controls
-- Chat tab: local transcript UX with runtime-backed responses and memory summarization
+- Deploy tab: credentials, routing, personality, deployment lifecycle
+- Chat tab: transcript UX with runtime-backed responses and memory summarization
+- Models tab: provider switching + local runtime tuning controls
+- Skills tab: discovered skills + invocation policy/status visibility
+- Channels tab: route map preview + live channel health snapshots
+- Diagnostics tab: usage counters + recent runtime/channel event timeline
 
 Build locally:
 
@@ -130,7 +151,7 @@ Build locally:
 ## Package Modules
 
 - `OpenClawProtocol` - generated protocol models and gateway frame types
-- `OpenClawCore` - config/session stores, cross-platform shims, hooks/cron/security helpers
+- `OpenClawCore` - config/session stores, cross-platform shims, hooks/cron/security helpers, diagnostics pipeline
 - `OpenClawGateway` - actor-isolated gateway transport and socket lifecycle
 - `OpenClawModels` - provider protocols, routing, and provider implementations
 - `OpenClawSkills` - skill discovery, prompt snapshots, and runtime invocation engine
@@ -149,6 +170,7 @@ Run core validation locally:
 swift build
 Scripts/check-networking-concurrency.sh
 swift test
+./Scripts/build-ios-example.sh
 ```
 
 CI workflows:

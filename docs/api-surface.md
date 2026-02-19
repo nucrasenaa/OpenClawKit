@@ -23,8 +23,12 @@
 
 ## Channel and Reply Flows
 
-- `monitorWebChannel(config:sessionStoreURL:)`
-- `getReplyFromConfig(config:sessionStoreURL:inbound:)`
+- `monitorWebChannel(config:sessionStoreURL:diagnosticsPipeline:)`
+- `getReplyFromConfig(config:sessionStoreURL:inbound:diagnosticsPipeline:)`
+
+## Observability Helpers
+
+- `makeDiagnosticsPipeline(eventLimit:)`
 
 ## Related Supporting Types
 
@@ -32,5 +36,8 @@
 - `SessionStore`
 - `InboundMessage`
 - `OutboundMessage`
+- `RuntimeDiagnosticsPipeline`
+- `RuntimeDiagnosticEvent`
+- `RuntimeUsageSnapshot`
 - `PortInUseError`
 - `ProcessResult`

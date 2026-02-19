@@ -1,10 +1,40 @@
 # Changelog
 
-## 2026.1.3 - Unreleased
+## 2026.1.3 - 2026-02-19
 
 ### Added
 
-- Baseline parity scope and issue mapping for the 2026.1.3 aggressive parity release train.
+- Model runtime parity contracts for streaming generation, cancellation-aware policies,
+  fallback provider chains, and local runtime hints.
+- Local model runtime integration upgrades: runtime switching, model lifecycle control,
+  state save/restore hooks, token streaming, and cancellation token propagation.
+- Skills parity expansion with pluggable executor backends, explicit-only invocation
+  policy controls, per-skill/default timeout enforcement, and richer invocation metadata.
+- Channel/runtime reliability primitives including health snapshots, retry/backoff
+  policy controls, built-in command handling (`/health`, `/status`, `/help`), and
+  stronger outbound delivery status tracking.
+- Centralized diagnostics and usage pipeline (`RuntimeDiagnosticsPipeline`) with
+  app-queryable snapshots for runs, model calls, skill usage, and channel delivery.
+- iOS example app expansion into a multi-tab runtime console for Deploy, Chat, Models,
+  Skills, Channels, and Diagnostics workflows.
+
+### Changed
+
+- Runtime diagnostics types are now shared in `OpenClawCore` and emitted from both
+  `EmbeddedAgentRuntime` and channel auto-reply flows with stable metadata fields.
+- `OpenClawSDK` now supports diagnostics pipeline injection for web-channel monitoring
+  and one-shot reply flows.
+- Gateway reconnect cancellation handling is hardened to avoid lingering reconnect
+  loops after disconnect/teardown.
+
+### Tests
+
+- Added dedicated diagnostics pipeline tests for aggregate metrics, sink wiring,
+  and SDK-level integration.
+- Added channel auto-reply regression coverage for outbound failure diagnostics and
+  retry-attempt metadata assertions.
+- Added runtime timeout diagnostics regression coverage and gateway reconnect-stop
+  E2E assertions after explicit disconnect.
 
 ## 2026.1.2.1 - 2026-02-17
 

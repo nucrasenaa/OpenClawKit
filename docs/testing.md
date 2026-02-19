@@ -11,9 +11,9 @@ swift test
 ## Test Structure
 
 - `Tests/OpenClawKitTests`
-  - unit-level tests for protocol, core shims, runtime primitives, facade helpers
+  - unit-level tests for protocol, core shims, runtime primitives, diagnostics, facade helpers
 - `Tests/OpenClawKitE2ETests`
-  - end-to-end tests across transport/runtime/channels/plugin flow
+  - end-to-end tests across transport/runtime/channels/plugin flow and reconnect lifecycle
 
 ## Networking Concurrency Gate
 
@@ -40,3 +40,10 @@ Never commit `.env`.
 1. `swift build`
 2. `Scripts/check-networking-concurrency.sh`
 3. `swift test`
+4. `./Scripts/build-ios-example.sh`
+
+## 2026.1.3 Reliability Coverage Highlights
+
+- Runtime diagnostics coverage for successful and timeout-failure run paths.
+- Channel auto-reply coverage for outbound delivery failures and emitted diagnostics metadata.
+- Gateway transport E2E coverage that asserts reconnect attempts stop after explicit disconnect.
