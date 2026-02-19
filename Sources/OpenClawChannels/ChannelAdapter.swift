@@ -148,6 +148,53 @@ public struct ChannelSendRetryPolicy: Sendable, Equatable {
     }
 }
 
+/// Result metadata for one outbound channel delivery attempt sequence.
+public struct ChannelDeliveryOutcome: Sendable, Equatable {
+    public let channelID: ChannelID
+    public let attempts: Int
+    public let status: ChannelHealthStatus
+
+    /// Creates a delivery outcome.
+    /// - Parameters:
+    ///   - channelID: Channel that received the outbound message.
+    ///   - attempts: Number of send attempts made.
+    ///   - status: Final channel health status after send.
+    public init(channelID: ChannelID, attempts: Int, status: ChannelHealthStatus) {
+        self.channelID = channelID
+        self.attempts = max(1, attempts)
+        self.status = status
+    }
+}
+
+/// Terminal outbound delivery error surfaced by channel registry retries.
+public struct ChannelDeliveryFailure: Error, LocalizedError, CustomStringConvertible, Sendable {
+    public let channelID: ChannelID
+    public let attempts: Int
+    public let status: ChannelHealthStatus
+    public let detail: String
+
+    /// Creates a channel delivery failure payload.
+    /// - Parameters:
+    ///   - channelID: Channel identifier.
+    ///   - attempts: Attempts performed before failure.
+    ///   - status: Final health status.
+    ///   - detail: Human-readable failure detail.
+    public init(channelID: ChannelID, attempts: Int, status: ChannelHealthStatus, detail: String) {
+        self.channelID = channelID
+        self.attempts = max(1, attempts)
+        self.status = status
+        self.detail = detail
+    }
+
+    public var errorDescription: String? {
+        "Failed to deliver message via \(self.channelID.rawValue) after \(self.attempts) attempt(s): \(self.detail)"
+    }
+
+    public var description: String {
+        self.errorDescription ?? "Channel delivery failure"
+    }
+}
+
 /// Registry that tracks channel adapters and dispatches outbound sends.
 public actor ChannelRegistry {
     private var adapters: [ChannelID: any ChannelAdapter] = [:]
@@ -200,7 +247,9 @@ public actor ChannelRegistry {
 
     /// Sends an outbound message using the registered adapter.
     /// - Parameter message: Outbound message.
-    public func send(_ message: OutboundMessage) async throws {
+    /// - Returns: Delivery outcome metadata including attempts and final channel status.
+    @discardableResult
+    public func send(_ message: OutboundMessage) async throws -> ChannelDeliveryOutcome {
         guard let adapter = self.adapters[message.channel] else {
             throw OpenClawCoreError.unavailable("No adapter registered for \(message.channel.rawValue)")
         }
@@ -214,8 +263,12 @@ public actor ChannelRegistry {
             do {
                 try await adapter.send(message)
                 self.sentMessages.append(message)
-                self.recordSendSuccess(channelID: message.channel)
-                return
+                let snapshot = self.recordSendSuccess(channelID: message.channel)
+                return ChannelDeliveryOutcome(
+                    channelID: message.channel,
+                    attempts: attempt,
+                    status: snapshot.status
+                )
             } catch {
                 lastError = error
                 let retryable = self.isRetryable(error)
@@ -231,12 +284,15 @@ public actor ChannelRegistry {
             }
         }
 
-        throw OpenClawCoreError.unavailable(
-            self.mapDeliveryError(
-                error: lastError,
-                channelID: message.channel,
-                attempts: attempts
-            )
+        let failureSnapshot = self.healthSnapshots[message.channel] ?? ChannelHealthSnapshot(
+            channelID: message.channel,
+            status: .offline
+        )
+        throw ChannelDeliveryFailure(
+            channelID: message.channel,
+            attempts: attempts,
+            status: failureSnapshot.status,
+            detail: self.mapDeliveryError(error: lastError)
         )
     }
 
@@ -262,9 +318,9 @@ public actor ChannelRegistry {
         self.sendRetryPolicy
     }
 
-    private func recordSendSuccess(channelID: ChannelID) {
+    private func recordSendSuccess(channelID: ChannelID) -> ChannelHealthSnapshot {
         let previous = self.healthSnapshots[channelID] ?? ChannelHealthSnapshot(channelID: channelID, status: .offline)
-        self.healthSnapshots[channelID] = ChannelHealthSnapshot(
+        let snapshot = ChannelHealthSnapshot(
             channelID: channelID,
             status: .healthy,
             consecutiveFailures: 0,
@@ -272,6 +328,8 @@ public actor ChannelRegistry {
             lastSuccessAt: Date(),
             lastFailureAt: previous.lastFailureAt
         )
+        self.healthSnapshots[channelID] = snapshot
+        return snapshot
     }
 
     private func recordSendFailure(channelID: ChannelID, error: Error, terminal: Bool) {
@@ -300,9 +358,9 @@ public actor ChannelRegistry {
         return true
     }
 
-    private func mapDeliveryError(error: Error?, channelID: ChannelID, attempts: Int) -> String {
+    private func mapDeliveryError(error: Error?) -> String {
         let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error ?? OpenClawCoreError.unavailable("unknown"))
-        return "Failed to deliver message via \(channelID.rawValue) after \(attempts) attempt(s): \(detail)"
+        return detail
     }
 }
 
@@ -526,16 +584,43 @@ public actor AutoReplyEngine {
                 "peerID": outbound.peerID,
             ]
         )
-        try await self.channelRegistry.send(outbound)
-        await self.emitDiagnostic(
-            name: "outbound.sent",
-            sessionKey: sessionKey,
-            metadata: [
-                "channel": outbound.channel.rawValue,
-                "peerID": outbound.peerID,
-            ]
-        )
-        return outbound
+        do {
+            let delivery = try await self.channelRegistry.send(outbound)
+            await self.emitDiagnostic(
+                name: "outbound.sent",
+                sessionKey: sessionKey,
+                metadata: [
+                    "channel": outbound.channel.rawValue,
+                    "peerID": outbound.peerID,
+                    "attempts": String(delivery.attempts),
+                    "status": delivery.status.rawValue,
+                ]
+            )
+            return outbound
+        } catch {
+            let attempts: String
+            let status: String
+            if let deliveryError = error as? ChannelDeliveryFailure {
+                attempts = String(deliveryError.attempts)
+                status = deliveryError.status.rawValue
+            } else {
+                let snapshot = await self.channelRegistry.healthSnapshot(for: outbound.channel)
+                attempts = String(max(1, snapshot.consecutiveFailures))
+                status = snapshot.status.rawValue
+            }
+            await self.emitDiagnostic(
+                name: "outbound.failed",
+                sessionKey: sessionKey,
+                metadata: [
+                    "channel": outbound.channel.rawValue,
+                    "peerID": outbound.peerID,
+                    "attempts": attempts,
+                    "status": status,
+                    "error": String(describing: error),
+                ]
+            )
+            throw error
+        }
     }
 
     private static func composeRuntimePrompt(

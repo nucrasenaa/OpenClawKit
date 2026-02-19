@@ -123,6 +123,13 @@ public struct OpenClawSDK: Sendable {
         try BinaryUtils.ensureBinary(name)
     }
 
+    /// Creates a diagnostics pipeline for centralized usage/event aggregation.
+    /// - Parameter eventLimit: Number of recent events to retain in-memory.
+    /// - Returns: Diagnostics pipeline actor.
+    public func makeDiagnosticsPipeline(eventLimit: Int = 500) -> RuntimeDiagnosticsPipeline {
+        RuntimeDiagnosticsPipeline(eventLimit: eventLimit)
+    }
+
     /// Builds an auto-reply engine backed by in-memory web channel adapter.
     /// - Parameters:
     ///   - config: Runtime configuration.
@@ -130,20 +137,23 @@ public struct OpenClawSDK: Sendable {
     /// - Returns: Ready-to-use auto-reply engine.
     public func monitorWebChannel(
         config: OpenClawConfig,
-        sessionStoreURL: URL
+        sessionStoreURL: URL,
+        diagnosticsPipeline: RuntimeDiagnosticsPipeline? = nil
     ) async throws -> AutoReplyEngine {
+        let diagnosticsSink = await diagnosticsPipeline?.sink()
         let sessionStore = SessionStore(fileURL: sessionStoreURL)
         try await sessionStore.load()
         let channelRegistry = ChannelRegistry()
         let webchat = InMemoryChannelAdapter(id: .webchat)
         await channelRegistry.register(webchat)
         try await webchat.start()
-        let runtime = EmbeddedAgentRuntime()
+        let runtime = EmbeddedAgentRuntime(diagnosticsSink: diagnosticsSink)
         return AutoReplyEngine(
             config: config,
             sessionStore: sessionStore,
             channelRegistry: channelRegistry,
-            runtime: runtime
+            runtime: runtime,
+            diagnosticsSink: diagnosticsSink
         )
     }
 
@@ -156,9 +166,14 @@ public struct OpenClawSDK: Sendable {
     public func getReplyFromConfig(
         config: OpenClawConfig,
         sessionStoreURL: URL,
-        inbound: InboundMessage
+        inbound: InboundMessage,
+        diagnosticsPipeline: RuntimeDiagnosticsPipeline? = nil
     ) async throws -> OutboundMessage {
-        let engine = try await monitorWebChannel(config: config, sessionStoreURL: sessionStoreURL)
+        let engine = try await monitorWebChannel(
+            config: config,
+            sessionStoreURL: sessionStoreURL,
+            diagnosticsPipeline: diagnosticsPipeline
+        )
         return try await engine.process(inbound)
     }
 

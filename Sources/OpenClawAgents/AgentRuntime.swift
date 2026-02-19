@@ -48,44 +48,6 @@ public struct AgentRunEvent: Sendable, Equatable {
     }
 }
 
-/// Structured diagnostics event emitted by runtime/channel subsystems.
-public struct RuntimeDiagnosticEvent: Sendable, Equatable {
-    /// Event subsystem source (`runtime`, `channel`, etc.).
-    public let subsystem: String
-    /// Stable event name.
-    public let name: String
-    /// Optional correlated run identifier.
-    public let runID: String?
-    /// Optional correlated session key.
-    public let sessionKey: String?
-    /// Additional event metadata values.
-    public let metadata: [String: String]
-
-    /// Creates a diagnostics event.
-    /// - Parameters:
-    ///   - subsystem: Event subsystem.
-    ///   - name: Event name.
-    ///   - runID: Optional run identifier.
-    ///   - sessionKey: Optional session key.
-    ///   - metadata: Additional metadata.
-    public init(
-        subsystem: String,
-        name: String,
-        runID: String? = nil,
-        sessionKey: String? = nil,
-        metadata: [String: String] = [:]
-    ) {
-        self.subsystem = subsystem
-        self.name = name
-        self.runID = runID
-        self.sessionKey = sessionKey
-        self.metadata = metadata
-    }
-}
-
-/// Async sink invoked for each runtime diagnostics event.
-public typealias RuntimeDiagnosticSink = @Sendable (RuntimeDiagnosticEvent) async -> Void
-
 /// Input payload for a single agent run.
 public struct AgentRunRequest: Sendable {
     public let runID: String
@@ -155,20 +117,24 @@ public actor EmbeddedAgentRuntime {
     private let gatewayClient: GatewayClient
     private let toolRegistry: AgentToolRegistry
     private let modelRouter: ModelRouter
+    private let diagnosticsSink: RuntimeDiagnosticSink?
 
     /// Creates an embedded runtime.
     /// - Parameters:
     ///   - gatewayClient: Gateway transport client.
     ///   - toolRegistry: Registry used to resolve tool calls.
     ///   - modelRouter: Router for model provider selection.
+    ///   - diagnosticsSink: Optional diagnostics event sink.
     public init(
         gatewayClient: GatewayClient = GatewayClient(),
         toolRegistry: AgentToolRegistry = AgentToolRegistry(),
-        modelRouter: ModelRouter = ModelRouter()
+        modelRouter: ModelRouter = ModelRouter(),
+        diagnosticsSink: RuntimeDiagnosticSink? = nil
     ) {
         self.gatewayClient = gatewayClient
         self.toolRegistry = toolRegistry
         self.modelRouter = modelRouter
+        self.diagnosticsSink = diagnosticsSink
     }
 
     /// Registers a tool implementation for runtime use.
@@ -195,64 +161,152 @@ public actor EmbeddedAgentRuntime {
     ///   - timeoutMs: Timeout in milliseconds.
     /// - Returns: Run result containing output, tool results, and lifecycle events.
     public func run(_ request: AgentRunRequest, timeoutMs: Int = 30_000) async throws -> AgentRunResult {
+        struct RunExecution: Sendable {
+            let result: AgentRunResult
+            let providerID: String
+            let modelID: String?
+            let modelLatencyMs: Int
+        }
+
         let runID = request.runID
         let timeoutNs = UInt64(max(0, timeoutMs)) * 1_000_000
+        let runStartedAt = Date()
 
-        return try await withThrowingTaskGroup(of: AgentRunResult.self) { group in
-            group.addTask { [gatewayClient, toolRegistry, modelRouter] in
-                var events: [AgentRunEvent] = [AgentRunEvent(runID: runID, kind: .runStarted)]
-                var toolResults: [AgentToolResult] = []
-                let composedPrompt = try await Self.composePrompt(
-                    basePrompt: request.prompt,
-                    workspaceRootPath: request.workspaceRootPath
-                )
+        await self.emitDiagnostic(
+            name: "run.started",
+            runID: runID,
+            sessionKey: request.sessionKey,
+            metadata: [
+                "requestedProviderID": request.modelProviderID ?? "",
+                "toolCallCount": String(request.toolCalls.count),
+            ]
+        )
+        await self.emitDiagnostic(
+            name: "model.call.started",
+            runID: runID,
+            sessionKey: request.sessionKey,
+            metadata: ["requestedProviderID": request.modelProviderID ?? ""]
+        )
 
-                if await gatewayClient.isConnected() == false {
-                    try await gatewayClient.connect(
-                        to: GatewayEndpoint(url: URL(string: "ws://127.0.0.1:18789")!)
+        do {
+            let execution = try await withThrowingTaskGroup(of: RunExecution.self) { group in
+                group.addTask { [gatewayClient, toolRegistry, modelRouter] in
+                    var events: [AgentRunEvent] = [AgentRunEvent(runID: runID, kind: .runStarted)]
+                    var toolResults: [AgentToolResult] = []
+                    let composedPrompt = try await Self.composePrompt(
+                        basePrompt: request.prompt,
+                        workspaceRootPath: request.workspaceRootPath
                     )
-                }
 
-                for call in request.toolCalls {
-                    events.append(AgentRunEvent(runID: runID, kind: .toolStarted, toolName: call.name))
-                    let toolResult = try await toolRegistry.execute(call)
-                    toolResults.append(toolResult)
-                    events.append(AgentRunEvent(runID: runID, kind: .toolCompleted, toolName: call.name))
-                }
+                    if await gatewayClient.isConnected() == false {
+                        try await gatewayClient.connect(
+                            to: GatewayEndpoint(url: URL(string: "ws://127.0.0.1:18789")!)
+                        )
+                    }
 
-                _ = try await gatewayClient.send(method: "agent.run", params: [
-                    "sessionKey": AnyCodable(request.sessionKey),
-                    "prompt": AnyCodable(composedPrompt),
-                ])
+                    for call in request.toolCalls {
+                        events.append(AgentRunEvent(runID: runID, kind: .toolStarted, toolName: call.name))
+                        let toolResult = try await toolRegistry.execute(call)
+                        toolResults.append(toolResult)
+                        events.append(AgentRunEvent(runID: runID, kind: .toolCompleted, toolName: call.name))
+                    }
 
-                let modelResponse = try await modelRouter.generate(
-                    ModelGenerationRequest(
+                    _ = try await gatewayClient.send(method: "agent.run", params: [
+                        "sessionKey": AnyCodable(request.sessionKey),
+                        "prompt": AnyCodable(composedPrompt),
+                    ])
+
+                    let modelStartedAt = Date()
+                    let modelResponse = try await modelRouter.generate(
+                        ModelGenerationRequest(
+                            sessionKey: request.sessionKey,
+                            prompt: composedPrompt,
+                            providerID: request.modelProviderID
+                        )
+                    )
+                    let modelLatencyMs = max(0, Int(Date().timeIntervalSince(modelStartedAt) * 1000))
+
+                    events.append(AgentRunEvent(runID: runID, kind: .runCompleted))
+                    let result = AgentRunResult(
+                        runID: runID,
                         sessionKey: request.sessionKey,
-                        prompt: composedPrompt,
-                        providerID: request.modelProviderID
+                        output: modelResponse.text,
+                        toolResults: toolResults,
+                        events: events
                     )
-                )
+                    return RunExecution(
+                        result: result,
+                        providerID: modelResponse.providerID,
+                        modelID: modelResponse.modelID,
+                        modelLatencyMs: modelLatencyMs
+                    )
+                }
 
-                events.append(AgentRunEvent(runID: runID, kind: .runCompleted))
-                return AgentRunResult(
-                    runID: runID,
-                    sessionKey: request.sessionKey,
-                    output: modelResponse.text,
-                    toolResults: toolResults,
-                    events: events
-                )
+                group.addTask {
+                    try await Task.sleep(nanoseconds: timeoutNs)
+                    throw AgentRuntimeError.timedOut(runID: runID)
+                }
+
+                guard let result = try await group.next() else {
+                    throw AgentRuntimeError.timedOut(runID: runID)
+                }
+                group.cancelAll()
+                return result
             }
 
-            group.addTask {
-                try await Task.sleep(nanoseconds: timeoutNs)
-                throw AgentRuntimeError.timedOut(runID: runID)
+            await self.emitDiagnostic(
+                name: "model.call.completed",
+                runID: runID,
+                sessionKey: request.sessionKey,
+                metadata: [
+                    "providerID": execution.providerID,
+                    "modelID": execution.modelID ?? "",
+                    "latencyMs": String(execution.modelLatencyMs),
+                ]
+            )
+            let runLatencyMs = max(0, Int(Date().timeIntervalSince(runStartedAt) * 1000))
+            await self.emitDiagnostic(
+                name: "run.completed",
+                runID: runID,
+                sessionKey: request.sessionKey,
+                metadata: [
+                    "latencyMs": String(runLatencyMs),
+                    "providerID": execution.providerID,
+                    "modelID": execution.modelID ?? "",
+                    "outputLength": String(execution.result.output.count),
+                ]
+            )
+            return execution.result
+        } catch {
+            let timedOut: Bool
+            if case AgentRuntimeError.timedOut = error {
+                timedOut = true
+            } else {
+                timedOut = false
             }
-
-            guard let result = try await group.next() else {
-                throw AgentRuntimeError.timedOut(runID: runID)
-            }
-            group.cancelAll()
-            return result
+            let runLatencyMs = max(0, Int(Date().timeIntervalSince(runStartedAt) * 1000))
+            await self.emitDiagnostic(
+                name: "model.call.failed",
+                runID: runID,
+                sessionKey: request.sessionKey,
+                metadata: [
+                    "requestedProviderID": request.modelProviderID ?? "",
+                    "error": String(describing: error),
+                    "timedOut": String(timedOut),
+                ]
+            )
+            await self.emitDiagnostic(
+                name: "run.failed",
+                runID: runID,
+                sessionKey: request.sessionKey,
+                metadata: [
+                    "latencyMs": String(runLatencyMs),
+                    "requestedProviderID": request.modelProviderID ?? "",
+                    "timedOut": String(timedOut),
+                    "error": String(describing: error),
+                ]
+            )
+            throw error
         }
     }
 
@@ -291,6 +345,24 @@ public actor EmbeddedAgentRuntime {
         sections.append("## User Request")
         sections.append(basePrompt)
         return sections.joined(separator: "\n\n")
+    }
+
+    private func emitDiagnostic(
+        name: String,
+        runID: String?,
+        sessionKey: String?,
+        metadata: [String: String] = [:]
+    ) async {
+        guard let diagnosticsSink else { return }
+        await diagnosticsSink(
+            RuntimeDiagnosticEvent(
+                subsystem: "runtime",
+                name: name,
+                runID: runID,
+                sessionKey: sessionKey,
+                metadata: metadata
+            )
+        )
     }
 }
 
