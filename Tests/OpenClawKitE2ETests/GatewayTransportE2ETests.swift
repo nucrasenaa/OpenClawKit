@@ -77,5 +77,28 @@ struct GatewayTransportE2ETests {
         #expect(counter.get() > 1)
         await client.disconnect()
     }
+
+    @Test
+    func disconnectStopsFurtherReconnectAttempts() async throws {
+        let counter = Counter()
+        let client = GatewayClient(
+            socketFactory: {
+                counter.increment()
+                return NoTickSocket()
+            },
+            tickIntervalMs: 20,
+            initialReconnectBackoffMs: 25
+        )
+
+        try await client.connect(to: GatewayEndpoint(url: URL(string: "ws://127.0.0.1:18789")!))
+        try await Task.sleep(nanoseconds: 220_000_000)
+        await client.disconnect()
+
+        // Allow cancellation to settle, then verify no further reconnect attempts occur.
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let baseline = counter.get()
+        try await Task.sleep(nanoseconds: 220_000_000)
+        #expect(counter.get() == baseline)
+    }
 }
 

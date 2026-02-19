@@ -60,5 +60,36 @@ struct AgentRuntimeTests {
         }
     }
 
+    @Test
+    func runtimePublishesFailureDiagnosticsOnTimeout() async throws {
+        let pipeline = RuntimeDiagnosticsPipeline(eventLimit: 50)
+        let runtime = EmbeddedAgentRuntime(diagnosticsSink: await pipeline.sink())
+        await runtime.registerTool(SlowTool())
+
+        do {
+            _ = try await runtime.run(
+                AgentRunRequest(
+                    runID: "run-timeout-diagnostics",
+                    sessionKey: "main",
+                    prompt: "slow",
+                    toolCalls: [AgentToolCall(name: "slow")]
+                ),
+                timeoutMs: 50
+            )
+            Issue.record("Expected timeout")
+        } catch {
+            #expect(String(describing: error).lowercased().contains("timed"))
+        }
+
+        let snapshot = await pipeline.usageSnapshot()
+        #expect(snapshot.runsStarted == 1)
+        #expect(snapshot.runsFailed == 1)
+        #expect(snapshot.runsTimedOut == 1)
+        #expect(snapshot.modelFailures == 1)
+        let events = await pipeline.recentEvents(limit: 10)
+        #expect(events.contains(where: { $0.name == "run.failed" && $0.metadata["timedOut"] == "true" }))
+        #expect(events.contains(where: { $0.name == "model.call.failed" && $0.metadata["timedOut"] == "true" }))
+    }
+
 }
 

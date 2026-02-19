@@ -22,6 +22,10 @@ struct ChannelAutoReplyTests {
         func names() -> [String] {
             self.events.map(\.name)
         }
+
+        func snapshot() -> [RuntimeDiagnosticEvent] {
+            self.events
+        }
     }
 
     actor FlakyChannelAdapter: ChannelAdapter {
@@ -433,6 +437,56 @@ struct ChannelAutoReplyTests {
         #expect(names.contains("model.call.started"))
         #expect(names.contains("model.call.completed"))
         #expect(names.contains("outbound.sent"))
+    }
+
+    @Test
+    func autoReplyEngineEmitsOutboundFailureDiagnostics() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-outbound-failure-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(
+                maxAttempts: 2,
+                initialBackoffMs: 1,
+                maxBackoffMs: 2,
+                backoffMultiplier: 1
+            )
+        )
+        let flaky = FlakyChannelAdapter(id: .webchat, failuresBeforeSuccess: 99)
+        await registry.register(flaky)
+        try await flaky.start()
+
+        let collector = DiagnosticCollector()
+        let runtime = EmbeddedAgentRuntime()
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime,
+            diagnosticsSink: { event in
+                await collector.append(event)
+            }
+        )
+
+        do {
+            _ = try await engine.process(
+                InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "hello")
+            )
+            Issue.record("Expected outbound send failure")
+        } catch {
+            #expect(String(describing: error).contains("after 2 attempt"))
+        }
+
+        let events = await collector.snapshot()
+        let outboundFailure = events.last(where: { $0.name == "outbound.failed" })
+        #expect(outboundFailure != nil)
+        #expect(outboundFailure?.metadata["attempts"] == "2")
+        #expect(outboundFailure?.metadata["status"] == "offline")
     }
 
     @Test
