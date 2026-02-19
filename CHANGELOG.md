@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.1.3 - Unreleased
+
+### Added
+
+- Baseline parity scope and issue mapping for the 2026.1.3 aggressive parity release train.
+
 ## 2026.1.2.1 - 2026-02-17
 
 ### Fixed
