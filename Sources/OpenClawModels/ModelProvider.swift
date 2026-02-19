@@ -152,14 +152,14 @@ public protocol ModelProvider: Sendable {
     /// Returns a token stream for providers that support streaming generation.
     /// - Parameter request: Generation request payload.
     /// - Returns: Async throwing stream of model chunks.
-    func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error>
+    func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error>
 }
 
 public extension ModelProvider {
     /// Default streaming implementation for non-streaming providers.
     /// - Parameter request: Generation request payload.
     /// - Returns: Stream with a single final chunk containing full generated text.
-    func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+    func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -269,11 +269,11 @@ public actor ModelRouter {
     /// Returns a token stream from the first available provider in fallback order.
     /// - Parameter request: Generation request payload.
     /// - Returns: Async throwing stream of model chunks.
-    public func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+    public func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
         let orderedProviderIDs = self.resolveProviderOrder(for: request)
         for providerID in orderedProviderIDs {
             if let provider = self.providers[providerID] {
-                return provider.generateStream(request)
+                return await provider.generateStream(request)
             }
         }
         return AsyncThrowingStream { continuation in

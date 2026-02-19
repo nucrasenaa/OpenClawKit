@@ -35,7 +35,7 @@ struct ModelRoutingTests {
             return ModelGenerationResponse(text: "stream-final", providerID: self.id, modelID: "stream")
         }
 
-        func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+        func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
             _ = request
             return AsyncThrowingStream { continuation in
                 continuation.yield(ModelStreamChunk(text: "stream-", isFinal: false))
