@@ -23,6 +23,26 @@ struct ContentView: View {
                     Label("Chat", systemImage: "message")
                 }
                 .badge(appState.isDeployed ? nil : "!")
+
+            ModelsView()
+                .tabItem {
+                    Label("Models", systemImage: "cpu")
+                }
+
+            SkillsView()
+                .tabItem {
+                    Label("Skills", systemImage: "wand.and.stars")
+                }
+
+            ChannelsView()
+                .tabItem {
+                    Label("Channels", systemImage: "bolt.horizontal.circle")
+                }
+
+            DiagnosticsView()
+                .tabItem {
+                    Label("Diagnostics", systemImage: "waveform.path.ecg")
+                }
         }
     }
 }

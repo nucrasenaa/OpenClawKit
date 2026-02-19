@@ -30,6 +30,7 @@ final class OpenClawAppState: ObservableObject {
         case anthropic
         case gemini
         case foundation
+        case local
 
         var id: String { self.rawValue }
 
@@ -47,6 +48,8 @@ final class OpenClawAppState: ObservableObject {
                 return GeminiModelProvider.providerID
             case .foundation:
                 return FoundationModelsProvider.providerID
+            case .local:
+                return LocalModelProvider.providerID
             }
         }
 
@@ -64,6 +67,8 @@ final class OpenClawAppState: ObservableObject {
                 return "Google Gemini"
             case .foundation:
                 return "Apple Foundation Models"
+            case .local:
+                return "Local (LLMFarm runtime)"
             }
         }
 
@@ -79,6 +84,8 @@ final class OpenClawAppState: ObservableObject {
                 return "gemini-2.0-flash"
             case .foundation:
                 return "apple-foundation-default"
+            case .local:
+                return "local-default"
             }
         }
     }
@@ -104,6 +111,35 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
+    /// Render model for a discovered skill row in the iOS app.
+    struct SkillItem: Identifiable, Sendable, Equatable {
+        let id: String
+        let name: String
+        let summary: String
+        let source: String
+        let primaryEnv: String
+        let requiresExplicitInvocation: Bool
+        let userInvocable: Bool
+        let entrypoint: String?
+    }
+
+    /// Render model for channel health rows.
+    struct ChannelHealthItem: Identifiable, Sendable, Equatable {
+        let id: String
+        let status: ChannelHealthStatus
+        let consecutiveFailures: Int
+        let lastError: String?
+        let lastSuccessAt: Date?
+        let lastFailureAt: Date?
+    }
+
+    /// Render model for route mapping previews.
+    struct RouteMappingItem: Identifiable, Sendable, Equatable {
+        let id: String
+        let route: String
+        let agentID: String
+    }
+
     /// Persisted deployment settings loaded/saved between launches.
     struct PersistedSettings: Codable, Sendable {
         var discordBotToken: String
@@ -115,6 +151,18 @@ final class OpenClawAppState: ObservableObject {
         var geminiAPIKey: String
         var selectedProvider: DeployProvider
         var selectedModelID: String
+        var localRuntime: String
+        var localModelPath: String
+        var localFallbackModelPaths: String
+        var localContextWindow: Int
+        var localTemperature: Double
+        var localTopP: Double
+        var localTopK: Int
+        var localMaxTokens: Int
+        var localUseMetal: Bool
+        var localStreamTokens: Bool
+        var localAllowCancellation: Bool
+        var localRequestTimeoutMs: Int
         var defaultAgentID: String
         var discordAgentID: String
         var webchatAgentID: String
@@ -130,6 +178,18 @@ final class OpenClawAppState: ObservableObject {
             geminiAPIKey: String,
             selectedProvider: DeployProvider,
             selectedModelID: String,
+            localRuntime: String,
+            localModelPath: String,
+            localFallbackModelPaths: String,
+            localContextWindow: Int,
+            localTemperature: Double,
+            localTopP: Double,
+            localTopK: Int,
+            localMaxTokens: Int,
+            localUseMetal: Bool,
+            localStreamTokens: Bool,
+            localAllowCancellation: Bool,
+            localRequestTimeoutMs: Int,
             defaultAgentID: String,
             discordAgentID: String,
             webchatAgentID: String,
@@ -144,6 +204,18 @@ final class OpenClawAppState: ObservableObject {
             self.geminiAPIKey = geminiAPIKey
             self.selectedProvider = selectedProvider
             self.selectedModelID = selectedModelID
+            self.localRuntime = localRuntime
+            self.localModelPath = localModelPath
+            self.localFallbackModelPaths = localFallbackModelPaths
+            self.localContextWindow = localContextWindow
+            self.localTemperature = localTemperature
+            self.localTopP = localTopP
+            self.localTopK = localTopK
+            self.localMaxTokens = localMaxTokens
+            self.localUseMetal = localUseMetal
+            self.localStreamTokens = localStreamTokens
+            self.localAllowCancellation = localAllowCancellation
+            self.localRequestTimeoutMs = localRequestTimeoutMs
             self.defaultAgentID = defaultAgentID
             self.discordAgentID = discordAgentID
             self.webchatAgentID = webchatAgentID
@@ -160,6 +232,18 @@ final class OpenClawAppState: ObservableObject {
             case geminiAPIKey
             case selectedProvider
             case selectedModelID
+            case localRuntime
+            case localModelPath
+            case localFallbackModelPaths
+            case localContextWindow
+            case localTemperature
+            case localTopP
+            case localTopK
+            case localMaxTokens
+            case localUseMetal
+            case localStreamTokens
+            case localAllowCancellation
+            case localRequestTimeoutMs
             case defaultAgentID
             case discordAgentID
             case webchatAgentID
@@ -177,6 +261,18 @@ final class OpenClawAppState: ObservableObject {
             self.geminiAPIKey = try container.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
             self.selectedProvider = try container.decodeIfPresent(DeployProvider.self, forKey: .selectedProvider) ?? .openAI
             self.selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID) ?? self.selectedProvider.defaultModelID
+            self.localRuntime = try container.decodeIfPresent(String.self, forKey: .localRuntime) ?? "llmfarm"
+            self.localModelPath = try container.decodeIfPresent(String.self, forKey: .localModelPath) ?? ""
+            self.localFallbackModelPaths = try container.decodeIfPresent(String.self, forKey: .localFallbackModelPaths) ?? ""
+            self.localContextWindow = max(256, try container.decodeIfPresent(Int.self, forKey: .localContextWindow) ?? 4096)
+            self.localTemperature = try container.decodeIfPresent(Double.self, forKey: .localTemperature) ?? 0.7
+            self.localTopP = try container.decodeIfPresent(Double.self, forKey: .localTopP) ?? 0.95
+            self.localTopK = max(1, try container.decodeIfPresent(Int.self, forKey: .localTopK) ?? 40)
+            self.localMaxTokens = max(1, try container.decodeIfPresent(Int.self, forKey: .localMaxTokens) ?? 512)
+            self.localUseMetal = try container.decodeIfPresent(Bool.self, forKey: .localUseMetal) ?? true
+            self.localStreamTokens = try container.decodeIfPresent(Bool.self, forKey: .localStreamTokens) ?? true
+            self.localAllowCancellation = try container.decodeIfPresent(Bool.self, forKey: .localAllowCancellation) ?? true
+            self.localRequestTimeoutMs = max(1, try container.decodeIfPresent(Int.self, forKey: .localRequestTimeoutMs) ?? 60_000)
             self.defaultAgentID = try container.decodeIfPresent(String.self, forKey: .defaultAgentID) ?? "main"
             self.discordAgentID = try container.decodeIfPresent(String.self, forKey: .discordAgentID) ?? ""
             self.webchatAgentID = try container.decodeIfPresent(String.self, forKey: .webchatAgentID) ?? ""
@@ -193,6 +289,18 @@ final class OpenClawAppState: ObservableObject {
     @Published var geminiAPIKey: String = ""
     @Published var selectedProvider: DeployProvider = .openAI
     @Published var selectedModelID: String = DeployProvider.openAI.defaultModelID
+    @Published var localRuntime: String = "llmfarm"
+    @Published var localModelPath: String = ""
+    @Published var localFallbackModelPaths: String = ""
+    @Published var localContextWindow: Int = 4096
+    @Published var localTemperature: Double = 0.7
+    @Published var localTopP: Double = 0.95
+    @Published var localTopK: Int = 40
+    @Published var localMaxTokens: Int = 512
+    @Published var localUseMetal: Bool = true
+    @Published var localStreamTokens: Bool = true
+    @Published var localAllowCancellation: Bool = true
+    @Published var localRequestTimeoutMs: Int = 60_000
     @Published var defaultAgentID: String = "main"
     @Published var discordAgentID: String = ""
     @Published var webchatAgentID: String = ""
@@ -203,6 +311,11 @@ final class OpenClawAppState: ObservableObject {
     @Published private(set) var statusText: String = "Not deployed"
     @Published private(set) var messages: [ChatMessage] = []
     @Published private(set) var latestSummary: String = ""
+    @Published private(set) var skillItems: [SkillItem] = []
+    @Published private(set) var channelHealthItems: [ChannelHealthItem] = []
+    @Published private(set) var diagnosticEvents: [RuntimeDiagnosticEvent] = []
+    @Published private(set) var usageSnapshot: RuntimeUsageSnapshot?
+    @Published private(set) var activeRetryPolicy: ChannelSendRetryPolicy = ChannelSendRetryPolicy()
 
     /// Returns whether runtime deployment is actively running.
     var isDeployed: Bool {
@@ -212,6 +325,46 @@ final class OpenClawAppState: ObservableObject {
     /// All available provider selections rendered by deploy UI.
     var availableProviders: [DeployProvider] {
         DeployProvider.allCases
+    }
+
+    /// Route mapping preview used by Channels tab.
+    var routeMappings: [RouteMappingItem] {
+        let defaultID = normalized(self.defaultAgentID) ?? "main"
+        var rows: [RouteMappingItem] = [
+            RouteMappingItem(id: "default", route: "default", agentID: defaultID),
+        ]
+        if let discordAgentID = normalized(self.discordAgentID) {
+            rows.append(
+                RouteMappingItem(
+                    id: ChannelID.discord.rawValue,
+                    route: AgentsConfig.routeKey(channel: ChannelID.discord.rawValue),
+                    agentID: discordAgentID
+                )
+            )
+        }
+        if let webchatAgentID = normalized(self.webchatAgentID) {
+            rows.append(
+                RouteMappingItem(
+                    id: ChannelID.webchat.rawValue,
+                    route: AgentsConfig.routeKey(channel: ChannelID.webchat.rawValue),
+                    agentID: webchatAgentID
+                )
+            )
+        }
+        return rows
+    }
+
+    /// Most recent skill invocation summary derived from diagnostics events.
+    var latestSkillInvocationSummary: String {
+        guard let event = self.diagnosticEvents.reversed().first(where: {
+            $0.subsystem == "channel" && $0.name == "skill.invoked"
+        }) else {
+            return "No skill invocation observed in this session yet."
+        }
+        let skillName = event.metadata["skillName"] ?? "unknown"
+        let durationMs = event.metadata["durationMs"] ?? "n/a"
+        let executor = event.metadata["executorID"] ?? "unknown"
+        return "\(skillName) (\(durationMs) ms via \(executor))"
     }
 
     private let sdk = OpenClawSDK.shared
@@ -231,9 +384,12 @@ final class OpenClawAppState: ObservableObject {
 
     private var webchatAdapter: InMemoryChannelAdapter?
     private var discordAdapter: DiscordChannelAdapter?
+    private var channelRegistry: ChannelRegistry?
     private var replyEngine: AutoReplyEngine?
     private var conversationMemoryStore: ConversationMemoryStore?
+    private var diagnosticsPipeline: RuntimeDiagnosticsPipeline?
     private var summaryTask: Task<Void, Never>?
+    private var observabilityTask: Task<Void, Never>?
 
     /// Creates and initializes app state from persisted local storage.
     init() {
@@ -300,14 +456,17 @@ final class OpenClawAppState: ObservableObject {
             await channelRegistry.register(webchat)
             try await webchat.start()
 
-            let runtime = EmbeddedAgentRuntime()
+            let diagnosticsPipeline = self.sdk.makeDiagnosticsPipeline(eventLimit: 600)
+            let diagnosticsSink = await diagnosticsPipeline.sink()
+            let runtime = EmbeddedAgentRuntime(diagnosticsSink: diagnosticsSink)
             try await self.registerSelectedModelProvider(on: runtime, using: config.models)
             let replyEngine = AutoReplyEngine(
                 config: config,
                 sessionStore: sessionStore,
                 channelRegistry: channelRegistry,
                 runtime: runtime,
-                conversationMemoryStore: conversationMemoryStore
+                conversationMemoryStore: conversationMemoryStore,
+                diagnosticsSink: diagnosticsSink
             )
 
             if discordConfig.enabled {
@@ -323,8 +482,10 @@ final class OpenClawAppState: ObservableObject {
             }
 
             self.webchatAdapter = webchat
+            self.channelRegistry = channelRegistry
             self.replyEngine = replyEngine
             self.conversationMemoryStore = conversationMemoryStore
+            self.diagnosticsPipeline = diagnosticsPipeline
 
             await self.summaryScheduler.addOrUpdate(
                 CronJob(
@@ -335,6 +496,8 @@ final class OpenClawAppState: ObservableObject {
                 )
             )
             self.startSummaryLoop()
+            self.startObservabilityLoop()
+            await self.refreshObservabilityState()
 
             self.deploymentState = .running
             self.statusText = self.discordAdapter == nil
@@ -354,6 +517,8 @@ final class OpenClawAppState: ObservableObject {
 
         self.summaryTask?.cancel()
         self.summaryTask = nil
+        self.observabilityTask?.cancel()
+        self.observabilityTask = nil
 
         if let discordAdapter {
             await discordAdapter.stop()
@@ -364,8 +529,15 @@ final class OpenClawAppState: ObservableObject {
 
         self.discordAdapter = nil
         self.webchatAdapter = nil
+        self.channelRegistry = nil
         self.replyEngine = nil
         self.conversationMemoryStore = nil
+        self.diagnosticsPipeline = nil
+        self.skillItems = []
+        self.channelHealthItems = []
+        self.diagnosticEvents = []
+        self.usageSnapshot = nil
+        self.activeRetryPolicy = ChannelSendRetryPolicy()
         self.deploymentState = .stopped
         self.statusText = "Deployment stopped."
     }
@@ -461,6 +633,31 @@ final class OpenClawAppState: ObservableObject {
                 defaultProviderID: FoundationModelsProvider.providerID,
                 foundation: FoundationModelConfig(enabled: true, preferredModelID: selectedModelID)
             )
+        case .local:
+            let fallbackPaths = self.localFallbackModelPaths
+                .split(whereSeparator: { $0 == "," || $0.isNewline })
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            let configuredModelPath = normalized(self.localModelPath)
+            return ModelsConfig(
+                defaultProviderID: LocalModelProvider.providerID,
+                local: LocalModelConfig(
+                    enabled: true,
+                    runtime: normalized(self.localRuntime) ?? "llmfarm",
+                    modelPath: configuredModelPath,
+                    contextWindow: max(256, self.localContextWindow),
+                    temperature: self.localTemperature,
+                    topP: self.localTopP,
+                    topK: max(1, self.localTopK),
+                    useMetal: self.localUseMetal,
+                    streamTokens: self.localStreamTokens,
+                    allowCancellation: self.localAllowCancellation,
+                    requestTimeoutMs: max(1, self.localRequestTimeoutMs),
+                    fallbackModelPaths: fallbackPaths,
+                    runtimeOptions: [:],
+                    maxTokens: max(1, self.localMaxTokens)
+                )
+            )
         }
     }
 
@@ -487,6 +684,14 @@ final class OpenClawAppState: ObservableObject {
         case .foundation:
             await runtime.registerModelProvider(FoundationModelsProvider())
             try await runtime.setDefaultModelProviderID(FoundationModelsProvider.providerID)
+        case .local:
+            await runtime.registerModelProvider(
+                LocalModelProvider(
+                    configuration: models.local,
+                    engine: StubLocalModelEngine()
+                )
+            )
+            try await runtime.setDefaultModelProviderID(LocalModelProvider.providerID)
         }
     }
 
@@ -515,6 +720,7 @@ final class OpenClawAppState: ObservableObject {
         } catch {
             self.appendMessage(.init(role: .system, text: "Error: \(error.localizedDescription)"))
         }
+        await self.refreshObservabilityState()
     }
 
     /// Starts background summary scheduler polling loop.
@@ -530,6 +736,73 @@ final class OpenClawAppState: ObservableObject {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
             }
         }
+    }
+
+    /// Forces an immediate refresh of diagnostics, channels, and discovered skills.
+    func refreshObservabilityNow() async {
+        await self.refreshObservabilityState()
+    }
+
+    /// Starts background observability polling loop.
+    private func startObservabilityLoop() {
+        self.observabilityTask?.cancel()
+        self.observabilityTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                await self.refreshObservabilityState()
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+            }
+        }
+    }
+
+    /// Updates diagnostics snapshots, channel health, and skill inventory.
+    private func refreshObservabilityState() async {
+        if let diagnosticsPipeline = self.diagnosticsPipeline {
+            self.usageSnapshot = await diagnosticsPipeline.usageSnapshot()
+            self.diagnosticEvents = await diagnosticsPipeline.recentEvents(limit: 120)
+        }
+
+        if let channelRegistry = self.channelRegistry {
+            let policy = await channelRegistry.retryPolicy()
+            let snapshots = await channelRegistry.allHealthSnapshots()
+            self.activeRetryPolicy = policy
+            self.channelHealthItems = snapshots.map { snapshot in
+                ChannelHealthItem(
+                    id: snapshot.channelID.rawValue,
+                    status: snapshot.status,
+                    consecutiveFailures: snapshot.consecutiveFailures,
+                    lastError: snapshot.lastError,
+                    lastSuccessAt: snapshot.lastSuccessAt,
+                    lastFailureAt: snapshot.lastFailureAt
+                )
+            }
+        }
+
+        let registry = SkillRegistry(workspaceRoot: self.workspaceURL)
+        if let skills = try? await registry.loadSkills() {
+            self.skillItems = skills.map { skill in
+                SkillItem(
+                    id: skill.name,
+                    name: skill.name,
+                    summary: skill.description.isEmpty ? "No description" : skill.description,
+                    source: skill.source.rawValue,
+                    primaryEnv: skill.metadata.primaryEnv ?? "unknown",
+                    requiresExplicitInvocation: skill.invocation.requiresExplicitInvocation,
+                    userInvocable: skill.invocation.userInvocable,
+                    entrypoint: Self.skillEntrypointHint(for: skill)
+                )
+            }
+        }
+    }
+
+    /// Resolves preferred entrypoint hint from skill frontmatter keys.
+    private static func skillEntrypointHint(for skill: SkillDefinition) -> String? {
+        for key in ["entrypoint", "script", "run"] {
+            if let value = skill.frontmatter[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return nil
     }
 
     /// Summarizes recent transcript entries into memory index state.
@@ -602,6 +875,18 @@ final class OpenClawAppState: ObservableObject {
         self.geminiAPIKey = settings.geminiAPIKey
         self.selectedProvider = settings.selectedProvider
         self.selectedModelID = settings.selectedModelID
+        self.localRuntime = settings.localRuntime
+        self.localModelPath = settings.localModelPath
+        self.localFallbackModelPaths = settings.localFallbackModelPaths
+        self.localContextWindow = settings.localContextWindow
+        self.localTemperature = settings.localTemperature
+        self.localTopP = settings.localTopP
+        self.localTopK = settings.localTopK
+        self.localMaxTokens = settings.localMaxTokens
+        self.localUseMetal = settings.localUseMetal
+        self.localStreamTokens = settings.localStreamTokens
+        self.localAllowCancellation = settings.localAllowCancellation
+        self.localRequestTimeoutMs = settings.localRequestTimeoutMs
         self.defaultAgentID = settings.defaultAgentID
         self.discordAgentID = settings.discordAgentID
         self.webchatAgentID = settings.webchatAgentID
@@ -626,6 +911,18 @@ final class OpenClawAppState: ObservableObject {
             geminiAPIKey: self.geminiAPIKey,
             selectedProvider: self.selectedProvider,
             selectedModelID: self.selectedModelID,
+            localRuntime: self.localRuntime,
+            localModelPath: self.localModelPath,
+            localFallbackModelPaths: self.localFallbackModelPaths,
+            localContextWindow: self.localContextWindow,
+            localTemperature: self.localTemperature,
+            localTopP: self.localTopP,
+            localTopK: self.localTopK,
+            localMaxTokens: self.localMaxTokens,
+            localUseMetal: self.localUseMetal,
+            localStreamTokens: self.localStreamTokens,
+            localAllowCancellation: self.localAllowCancellation,
+            localRequestTimeoutMs: self.localRequestTimeoutMs,
             defaultAgentID: self.defaultAgentID,
             discordAgentID: self.discordAgentID,
             webchatAgentID: self.webchatAgentID,

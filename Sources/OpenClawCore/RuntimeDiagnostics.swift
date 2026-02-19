@@ -10,6 +10,8 @@ public struct RuntimeDiagnosticEvent: Sendable, Equatable {
     public let runID: String?
     /// Optional correlated session key.
     public let sessionKey: String?
+    /// Event timestamp.
+    public let occurredAt: Date
     /// Additional event metadata values.
     public let metadata: [String: String]
 
@@ -19,18 +21,21 @@ public struct RuntimeDiagnosticEvent: Sendable, Equatable {
     ///   - name: Event name.
     ///   - runID: Optional run identifier.
     ///   - sessionKey: Optional session key.
+    ///   - occurredAt: Event timestamp.
     ///   - metadata: Additional metadata.
     public init(
         subsystem: String,
         name: String,
         runID: String? = nil,
         sessionKey: String? = nil,
+        occurredAt: Date = Date(),
         metadata: [String: String] = [:]
     ) {
         self.subsystem = subsystem
         self.name = name
         self.runID = runID
         self.sessionKey = sessionKey
+        self.occurredAt = occurredAt
         self.metadata = metadata
     }
 }

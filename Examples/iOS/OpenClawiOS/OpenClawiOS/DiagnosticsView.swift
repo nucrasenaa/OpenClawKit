@@ -1,0 +1,85 @@
+import SwiftUI
+import OpenClawKit
+
+/// Runtime diagnostics and usage timeline view.
+struct DiagnosticsView: View {
+    @EnvironmentObject private var appState: OpenClawAppState
+
+    private static let formatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Usage Snapshot") {
+                    if let snapshot = appState.usageSnapshot {
+                        Text("runs: \(snapshot.runsStarted) started / \(snapshot.runsCompleted) completed / \(snapshot.runsFailed) failed")
+                        Text("avg run latency: \(snapshot.averageRunLatencyMs) ms")
+                        Text("model calls: \(snapshot.modelCalls), failures: \(snapshot.modelFailures)")
+                        Text("skills invoked: \(snapshot.skillInvocations)")
+                        Text("channel deliveries: \(snapshot.channelDeliveriesSent) sent / \(snapshot.channelDeliveriesFailed) failed")
+                    } else {
+                        Text("No diagnostics data captured yet.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Recent Events") {
+                    if appState.diagnosticEvents.isEmpty {
+                        Text("No events yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(appState.diagnosticEvents.reversed().enumerated()), id: \.offset) { _, event in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Text("\(event.subsystem).\(event.name)")
+                                        .font(.caption.weight(.semibold))
+                                    Spacer()
+                                    Text(Self.formatter.string(from: event.occurredAt))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let runID = event.runID, !runID.isEmpty {
+                                    Text("run: \(runID)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let sessionKey = event.sessionKey, !sessionKey.isEmpty {
+                                    Text("session: \(sessionKey)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if !event.metadata.isEmpty {
+                                    Text(event.metadata
+                                        .sorted(by: { $0.key < $1.key })
+                                        .map { "\($0.key)=\($0.value)" }
+                                        .joined(separator: ", "))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(3)
+                                }
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Diagnostics")
+            .toolbar {
+                Button("Refresh") {
+                    Task { await appState.refreshObservabilityNow() }
+                }
+            }
+        }
+    }
+}
+
+#Preview {
+    DiagnosticsView()
+        .environmentObject(OpenClawAppState())
+}

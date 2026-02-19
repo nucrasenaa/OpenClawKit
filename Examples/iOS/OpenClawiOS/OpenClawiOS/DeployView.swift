@@ -42,7 +42,7 @@ struct DeployView: View {
                         SecureField("Gemini API Key", text: $appState.geminiAPIKey)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                    case .foundation, .echo:
+                    case .foundation, .echo, .local:
                         Text("Selected provider does not require an external API key.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
