@@ -176,7 +176,12 @@ public actor GatewayClient {
 
             let timeoutNs = UInt64(max(0, timeoutMs)) * 1_000_000
             Task { [weak self] in
-                try? await Task.sleep(nanoseconds: timeoutNs)
+                do {
+                    try await Task.sleep(nanoseconds: timeoutNs)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
                 await self?.failPending(id: id, with: GatewayTransportError.requestTimeout(requestID: id))
             }
         }
@@ -224,7 +229,12 @@ public actor GatewayClient {
             while !Task.isCancelled {
                 guard let self else { return }
                 let sleepNs = UInt64(self.tickIntervalMs) * 1_000_000
-                try? await Task.sleep(nanoseconds: sleepNs)
+                do {
+                    try await Task.sleep(nanoseconds: sleepNs)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
                 await self.validateTickDeadline()
             }
         }
@@ -289,6 +299,7 @@ public actor GatewayClient {
 
     private func handleSocketFailure(_ error: Error) {
         self.connected = false
+        self.socket = nil
         self.failAllPending(with: error)
         self.receiveTask?.cancel()
         self.receiveTask = nil
@@ -305,15 +316,35 @@ public actor GatewayClient {
         self.reconnectBackoffMs = min(delay * 2, 5_000)
 
         self.reconnectTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: delay * 1_000_000)
+            do {
+                try await Task.sleep(nanoseconds: delay * 1_000_000)
+            } catch {
+                await self?.clearReconnectTaskIfFinished()
+                return
+            }
             guard let self else { return }
+            guard !Task.isCancelled else {
+                await self.clearReconnectTaskIfFinished()
+                return
+            }
+            guard await self.shouldAttemptReconnect() else {
+                await self.clearReconnectTaskIfFinished()
+                return
+            }
             do {
                 try await self.establishConnection()
+            } catch is CancellationError {
+                await self.clearReconnectTaskIfFinished()
+                return
             } catch {
                 await self.handleSocketFailure(error)
             }
             await self.clearReconnectTaskIfFinished()
         }
+    }
+
+    private func shouldAttemptReconnect() -> Bool {
+        self.shouldReconnect && self.endpoint != nil
     }
 
     private func clearReconnectTaskIfFinished() {

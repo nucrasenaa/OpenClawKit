@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import OpenClawKit
 
-@Suite("Channels and auto-reply")
+@Suite("Channels and auto-reply", .serialized)
 struct ChannelAutoReplyTests {
     struct PromptEchoProvider: ModelProvider {
         let id = "prompt-echo"
@@ -24,6 +24,38 @@ struct ChannelAutoReplyTests {
         }
     }
 
+    actor FlakyChannelAdapter: ChannelAdapter {
+        let id: ChannelID
+        private let failuresBeforeSuccess: Int
+        private(set) var started = false
+        private(set) var attempts = 0
+        private(set) var sentMessages: [OutboundMessage] = []
+
+        init(id: ChannelID, failuresBeforeSuccess: Int) {
+            self.id = id
+            self.failuresBeforeSuccess = failuresBeforeSuccess
+        }
+
+        func start() async throws {
+            self.started = true
+        }
+
+        func stop() async {
+            self.started = false
+        }
+
+        func send(_ message: OutboundMessage) async throws {
+            guard self.started else {
+                throw OpenClawCoreError.unavailable("adapter not started")
+            }
+            self.attempts += 1
+            if self.attempts <= self.failuresBeforeSuccess {
+                throw OpenClawCoreError.unavailable("temporary network outage")
+            }
+            self.sentMessages.append(message)
+        }
+    }
+
     @Test
     func channelRegistryRoutesMessagesByChannelID() async throws {
         let registry = ChannelRegistry()
@@ -37,6 +69,60 @@ struct ChannelAutoReplyTests {
         let sent = await telegram.sentMessages()
         #expect(sent.count == 1)
         #expect(sent.first?.text == "hello")
+    }
+
+    @Test
+    func channelRegistryRetriesTransientFailuresAndRecoversHealth() async throws {
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(
+                maxAttempts: 3,
+                initialBackoffMs: 1,
+                maxBackoffMs: 2,
+                backoffMultiplier: 1
+            )
+        )
+        let flaky = FlakyChannelAdapter(id: .telegram, failuresBeforeSuccess: 2)
+        await registry.register(flaky)
+        try await flaky.start()
+
+        let outbound = OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "hello")
+        try await registry.send(outbound)
+
+        let attempts = await flaky.attempts
+        let sentCount = await flaky.sentMessages.count
+        #expect(attempts == 3)
+        #expect(sentCount == 1)
+        let health = await registry.healthSnapshot(for: .telegram)
+        #expect(health.status == .healthy)
+        #expect(health.consecutiveFailures == 0)
+        #expect(health.lastSuccessAt != nil)
+    }
+
+    @Test
+    func channelRegistryMarksOfflineAfterRetryExhaustion() async throws {
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(
+                maxAttempts: 3,
+                initialBackoffMs: 1,
+                maxBackoffMs: 2,
+                backoffMultiplier: 1
+            )
+        )
+        let flaky = FlakyChannelAdapter(id: .telegram, failuresBeforeSuccess: 10)
+        await registry.register(flaky)
+        try await flaky.start()
+
+        do {
+            try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "hello"))
+            Issue.record("Expected send failure")
+        } catch {
+            #expect(String(describing: error).contains("after 3 attempt"))
+        }
+
+        let health = await registry.healthSnapshot(for: .telegram)
+        #expect(health.status == .offline)
+        #expect(health.consecutiveFailures == 3)
+        #expect((health.lastError ?? "").contains("Unavailable"))
     }
 
     @Test
@@ -347,6 +433,38 @@ struct ChannelAutoReplyTests {
         #expect(names.contains("model.call.started"))
         #expect(names.contains("model.call.completed"))
         #expect(names.contains("outbound.sent"))
+    }
+
+    @Test
+    func autoReplyEngineHandlesHealthCommand() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-command-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime
+        )
+
+        let outbound = try await engine.process(
+            InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "/health")
+        )
+
+        #expect(outbound.text.contains("Channel: webchat"))
+        #expect(outbound.text.contains("Status:"))
+        #expect(outbound.text.contains("RetryPolicy:"))
     }
 }
 

@@ -81,18 +81,101 @@ public protocol InboundChannelAdapter: ChannelAdapter {
     func setInboundHandler(_ handler: InboundMessageHandler?) async
 }
 
+/// High-level health states for channel delivery.
+public enum ChannelHealthStatus: String, Sendable {
+    case healthy
+    case degraded
+    case offline
+}
+
+/// Channel health snapshot emitted by delivery tracking.
+public struct ChannelHealthSnapshot: Sendable, Equatable {
+    public let channelID: ChannelID
+    public let status: ChannelHealthStatus
+    public let consecutiveFailures: Int
+    public let lastError: String?
+    public let lastSuccessAt: Date?
+    public let lastFailureAt: Date?
+
+    /// Creates a channel health snapshot.
+    /// - Parameters:
+    ///   - channelID: Channel identifier.
+    ///   - status: Current health status.
+    ///   - consecutiveFailures: Consecutive send failures.
+    ///   - lastError: Last error detail, if any.
+    ///   - lastSuccessAt: Last successful send timestamp.
+    ///   - lastFailureAt: Last failed send timestamp.
+    public init(
+        channelID: ChannelID,
+        status: ChannelHealthStatus,
+        consecutiveFailures: Int = 0,
+        lastError: String? = nil,
+        lastSuccessAt: Date? = nil,
+        lastFailureAt: Date? = nil
+    ) {
+        self.channelID = channelID
+        self.status = status
+        self.consecutiveFailures = max(0, consecutiveFailures)
+        self.lastError = lastError
+        self.lastSuccessAt = lastSuccessAt
+        self.lastFailureAt = lastFailureAt
+    }
+}
+
+/// Retry/backoff controls for outbound channel sends.
+public struct ChannelSendRetryPolicy: Sendable, Equatable {
+    public let maxAttempts: Int
+    public let initialBackoffMs: Int
+    public let maxBackoffMs: Int
+    public let backoffMultiplier: Double
+
+    /// Creates send retry policy values.
+    /// - Parameters:
+    ///   - maxAttempts: Maximum send attempts including first try.
+    ///   - initialBackoffMs: Backoff delay before first retry.
+    ///   - maxBackoffMs: Maximum exponential backoff cap.
+    ///   - backoffMultiplier: Exponential multiplier between retries.
+    public init(
+        maxAttempts: Int = 3,
+        initialBackoffMs: Int = 250,
+        maxBackoffMs: Int = 5_000,
+        backoffMultiplier: Double = 2.0
+    ) {
+        self.maxAttempts = max(1, maxAttempts)
+        self.initialBackoffMs = max(1, initialBackoffMs)
+        self.maxBackoffMs = max(1, maxBackoffMs)
+        self.backoffMultiplier = max(1, backoffMultiplier)
+    }
+}
+
 /// Registry that tracks channel adapters and dispatches outbound sends.
 public actor ChannelRegistry {
     private var adapters: [ChannelID: any ChannelAdapter] = [:]
     private var sentMessages: [OutboundMessage] = []
+    private var healthSnapshots: [ChannelID: ChannelHealthSnapshot] = [:]
+    private let sendRetryPolicy: ChannelSendRetryPolicy
 
-    /// Creates an empty channel registry.
-    public init() {}
+    /// Creates an empty channel registry with default retry policy.
+    public init() {
+        self.sendRetryPolicy = ChannelSendRetryPolicy()
+    }
+
+    /// Creates a channel registry with an explicit retry policy.
+    /// - Parameter sendRetryPolicy: Retry policy for outbound delivery failures.
+    public init(sendRetryPolicy: ChannelSendRetryPolicy) {
+        self.sendRetryPolicy = sendRetryPolicy
+    }
 
     /// Registers (or replaces) a channel adapter.
     /// - Parameter adapter: Adapter implementation.
     public func register(_ adapter: any ChannelAdapter) {
         self.adapters[adapter.id] = adapter
+        if self.healthSnapshots[adapter.id] == nil {
+            self.healthSnapshots[adapter.id] = ChannelHealthSnapshot(
+                channelID: adapter.id,
+                status: .offline
+            )
+        }
     }
 
     /// Returns whether an adapter exists for an ID.
@@ -121,13 +204,105 @@ public actor ChannelRegistry {
         guard let adapter = self.adapters[message.channel] else {
             throw OpenClawCoreError.unavailable("No adapter registered for \(message.channel.rawValue)")
         }
-        try await adapter.send(message)
-        self.sentMessages.append(message)
+        let maxAttempts = self.sendRetryPolicy.maxAttempts
+        var backoffMs = self.sendRetryPolicy.initialBackoffMs
+        var attempts = 0
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            attempts = attempt
+            do {
+                try await adapter.send(message)
+                self.sentMessages.append(message)
+                self.recordSendSuccess(channelID: message.channel)
+                return
+            } catch {
+                lastError = error
+                let retryable = self.isRetryable(error)
+                let terminal = !retryable || attempt >= maxAttempts
+                self.recordSendFailure(channelID: message.channel, error: error, terminal: terminal)
+                if terminal {
+                    break
+                }
+                let sleepNs = UInt64(max(1, backoffMs)) * 1_000_000
+                try? await Task.sleep(nanoseconds: sleepNs)
+                let grown = Int(Double(backoffMs) * self.sendRetryPolicy.backoffMultiplier)
+                backoffMs = min(self.sendRetryPolicy.maxBackoffMs, max(1, grown))
+            }
+        }
+
+        throw OpenClawCoreError.unavailable(
+            self.mapDeliveryError(
+                error: lastError,
+                channelID: message.channel,
+                attempts: attempts
+            )
+        )
     }
 
     /// Returns outbound message history captured by registry dispatches.
     public func outboundHistory() -> [OutboundMessage] {
         self.sentMessages
+    }
+
+    /// Returns tracked health snapshot for a channel.
+    /// - Parameter id: Channel identifier.
+    /// - Returns: Channel health snapshot.
+    public func healthSnapshot(for id: ChannelID) -> ChannelHealthSnapshot {
+        self.healthSnapshots[id] ?? ChannelHealthSnapshot(channelID: id, status: .offline)
+    }
+
+    /// Returns all known channel health snapshots sorted by channel ID.
+    public func allHealthSnapshots() -> [ChannelHealthSnapshot] {
+        self.healthSnapshots.values.sorted { $0.channelID.rawValue < $1.channelID.rawValue }
+    }
+
+    /// Returns retry policy used for channel delivery attempts.
+    public func retryPolicy() -> ChannelSendRetryPolicy {
+        self.sendRetryPolicy
+    }
+
+    private func recordSendSuccess(channelID: ChannelID) {
+        let previous = self.healthSnapshots[channelID] ?? ChannelHealthSnapshot(channelID: channelID, status: .offline)
+        self.healthSnapshots[channelID] = ChannelHealthSnapshot(
+            channelID: channelID,
+            status: .healthy,
+            consecutiveFailures: 0,
+            lastError: nil,
+            lastSuccessAt: Date(),
+            lastFailureAt: previous.lastFailureAt
+        )
+    }
+
+    private func recordSendFailure(channelID: ChannelID, error: Error, terminal: Bool) {
+        let previous = self.healthSnapshots[channelID] ?? ChannelHealthSnapshot(channelID: channelID, status: .offline)
+        let failureCount = previous.consecutiveFailures + 1
+        let errorDetail = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        self.healthSnapshots[channelID] = ChannelHealthSnapshot(
+            channelID: channelID,
+            status: terminal ? .offline : .degraded,
+            consecutiveFailures: failureCount,
+            lastError: errorDetail,
+            lastSuccessAt: previous.lastSuccessAt,
+            lastFailureAt: Date()
+        )
+    }
+
+    private func isRetryable(_ error: Error) -> Bool {
+        if let core = error as? OpenClawCoreError {
+            switch core {
+            case .invalidConfiguration:
+                return false
+            case .unavailable:
+                return true
+            }
+        }
+        return true
+    }
+
+    private func mapDeliveryError(error: Error?, channelID: ChannelID, attempts: Int) -> String {
+        let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error ?? OpenClawCoreError.unavailable("unknown"))
+        return "Failed to deliver message via \(channelID.rawValue) after \(attempts) attempt(s): \(detail)"
     }
 }
 
@@ -247,6 +422,19 @@ public actor AutoReplyEngine {
             )
         )
         try await self.sessionStore.save()
+
+        if let commandReply = await self.handleCommandIfRequested(message, sessionKey: sessionKey) {
+            await self.emitDiagnostic(
+                name: "command.handled",
+                sessionKey: sessionKey,
+                metadata: [
+                    "channel": commandReply.channel.rawValue,
+                    "peerID": commandReply.peerID,
+                ]
+            )
+            try await self.channelRegistry.send(commandReply)
+            return commandReply
+        }
 
         let memoryContext = await self.conversationMemoryStore?.formattedContext(
             sessionKey: sessionKey,
@@ -370,6 +558,53 @@ public actor AutoReplyEngine {
         }
         sections.append("## New User Message\n\(inboundText)")
         return sections.joined(separator: "\n\n")
+    }
+
+    private func handleCommandIfRequested(
+        _ message: InboundMessage,
+        sessionKey: String
+    ) async -> OutboundMessage? {
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else {
+            return nil
+        }
+        let command = trimmed
+            .split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
+            .first?
+            .lowercased() ?? ""
+
+        switch command {
+        case "/health", "/status":
+            let snapshot = await self.channelRegistry.healthSnapshot(for: message.channel)
+            let policy = await self.channelRegistry.retryPolicy()
+            let text = """
+            Channel: \(snapshot.channelID.rawValue)
+            Status: \(snapshot.status.rawValue)
+            ConsecutiveFailures: \(snapshot.consecutiveFailures)
+            LastError: \(snapshot.lastError ?? "none")
+            RetryPolicy: attempts=\(policy.maxAttempts), initialBackoffMs=\(policy.initialBackoffMs), maxBackoffMs=\(policy.maxBackoffMs)
+            SessionKey: \(sessionKey)
+            """
+            return OutboundMessage(
+                channel: message.channel,
+                accountID: message.accountID,
+                peerID: message.peerID,
+                text: text
+            )
+        case "/help":
+            return OutboundMessage(
+                channel: message.channel,
+                accountID: message.accountID,
+                peerID: message.peerID,
+                text: """
+                Available runtime commands:
+                - /health or /status: Show channel delivery health and retry policy.
+                - /help: Show this command list.
+                """
+            )
+        default:
+            return nil
+        }
     }
 
     private func invokeSkillIfRequested(_ messageText: String) async throws -> SkillInvocationResult? {
