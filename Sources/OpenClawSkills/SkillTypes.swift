@@ -35,15 +35,23 @@ public struct SkillMetadata: Codable, Sendable, Equatable {
 public struct SkillInvocationPolicy: Codable, Sendable, Equatable {
     /// Whether users may explicitly invoke the skill.
     public var userInvocable: Bool
+    /// Whether natural language inference should be disabled for this skill.
+    public var requiresExplicitInvocation: Bool
     /// Whether skill should be excluded from model prompt injection.
     public var disableModelInvocation: Bool
 
     /// Creates invocation policy flags.
     /// - Parameters:
     ///   - userInvocable: Whether users can invoke the skill.
+    ///   - requiresExplicitInvocation: Whether implicit/natural-language invocation is disabled.
     ///   - disableModelInvocation: Whether to exclude from model prompt assembly.
-    public init(userInvocable: Bool = true, disableModelInvocation: Bool = false) {
+    public init(
+        userInvocable: Bool = true,
+        requiresExplicitInvocation: Bool = false,
+        disableModelInvocation: Bool = false
+    ) {
         self.userInvocable = userInvocable
+        self.requiresExplicitInvocation = requiresExplicitInvocation
         self.disableModelInvocation = disableModelInvocation
     }
 }

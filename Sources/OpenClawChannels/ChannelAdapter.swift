@@ -269,13 +269,20 @@ public actor AutoReplyEngine {
         }
         let skillOutput = try await self.invokeSkillIfRequested(message.text)
         if let skillOutput {
+            var metadata: [String: String] = [
+                "skillName": skillOutput.skillName,
+                "outputLength": String(skillOutput.output.count),
+            ]
+            if let executorID = skillOutput.executorID {
+                metadata["executorID"] = executorID
+            }
+            if let durationMs = skillOutput.durationMs {
+                metadata["durationMs"] = String(durationMs)
+            }
             await self.emitDiagnostic(
                 name: "skill.invoked",
                 sessionKey: sessionKey,
-                metadata: [
-                    "skillName": skillOutput.skillName,
-                    "outputLength": String(skillOutput.output.count),
-                ]
+                metadata: metadata
             )
         }
         let runtimePrompt = Self.composeRuntimePrompt(
@@ -370,7 +377,10 @@ public actor AutoReplyEngine {
         guard !workspaceRoot.isEmpty else {
             return nil
         }
-        let invoker = SkillInvocationEngine(workspaceRoot: URL(fileURLWithPath: workspaceRoot, isDirectory: true))
+        let invoker = SkillInvocationEngine(
+            workspaceRoot: URL(fileURLWithPath: workspaceRoot, isDirectory: true),
+            invocationTimeoutMs: self.config.agents.skillInvocationTimeoutMs
+        )
         return try await invoker.invokeIfRequested(message: messageText)
     }
 

@@ -46,6 +46,10 @@ enum SkillFrontmatterParser {
     static func resolveInvocationPolicy(from frontmatter: [String: String]) -> SkillInvocationPolicy {
         SkillInvocationPolicy(
             userInvocable: parseBool(frontmatter["user-invocable"], defaultValue: true) ?? true,
+            requiresExplicitInvocation: parseBool(
+                frontmatter["requires-explicit-invocation"] ?? frontmatter["explicit-only"],
+                defaultValue: false
+            ) ?? false,
             disableModelInvocation: parseBool(
                 frontmatter["disable-model-invocation"],
                 defaultValue: false

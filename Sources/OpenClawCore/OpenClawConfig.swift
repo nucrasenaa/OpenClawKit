@@ -78,6 +78,7 @@ public struct GatewayConfig: Codable, Sendable, Equatable {
 public struct AgentsConfig: Codable, Sendable, Equatable {
     public var defaultAgentID: String
     public var workspaceRoot: String
+    public var skillInvocationTimeoutMs: Int
     public var agentIDs: [String]
     public var routeAgentMap: [String: String]
 
@@ -85,16 +86,19 @@ public struct AgentsConfig: Codable, Sendable, Equatable {
     /// - Parameters:
     ///   - defaultAgentID: Default agent identifier.
     ///   - workspaceRoot: Workspace root path.
+    ///   - skillInvocationTimeoutMs: Default timeout for skill invocation in milliseconds.
     ///   - agentIDs: Declared agent identifiers available at runtime.
     ///   - routeAgentMap: Route mapping table (`channel[:accountID[:peerID]] -> agentID`).
     public init(
         defaultAgentID: String = "main",
         workspaceRoot: String = "./workspace",
+        skillInvocationTimeoutMs: Int = 30_000,
         agentIDs: [String] = [],
         routeAgentMap: [String: String] = [:]
     ) {
         self.defaultAgentID = defaultAgentID
         self.workspaceRoot = workspaceRoot
+        self.skillInvocationTimeoutMs = max(1, skillInvocationTimeoutMs)
         var normalizedAgentIDs = Set(agentIDs.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
         normalizedAgentIDs.insert(defaultAgentID)
         self.agentIDs = normalizedAgentIDs.sorted()
@@ -104,6 +108,7 @@ public struct AgentsConfig: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case defaultAgentID
         case workspaceRoot
+        case skillInvocationTimeoutMs
         case agentIDs
         case routeAgentMap
     }
@@ -112,11 +117,13 @@ public struct AgentsConfig: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let defaultAgentID = try container.decodeIfPresent(String.self, forKey: .defaultAgentID) ?? "main"
         let workspaceRoot = try container.decodeIfPresent(String.self, forKey: .workspaceRoot) ?? "./workspace"
+        let skillInvocationTimeoutMs = try container.decodeIfPresent(Int.self, forKey: .skillInvocationTimeoutMs) ?? 30_000
         let agentIDs = try container.decodeIfPresent([String].self, forKey: .agentIDs) ?? []
         let routeAgentMap = try container.decodeIfPresent([String: String].self, forKey: .routeAgentMap) ?? [:]
         self.init(
             defaultAgentID: defaultAgentID,
             workspaceRoot: workspaceRoot,
+            skillInvocationTimeoutMs: skillInvocationTimeoutMs,
             agentIDs: agentIDs,
             routeAgentMap: routeAgentMap
         )
@@ -126,6 +133,7 @@ public struct AgentsConfig: Codable, Sendable, Equatable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.defaultAgentID, forKey: .defaultAgentID)
         try container.encode(self.workspaceRoot, forKey: .workspaceRoot)
+        try container.encode(self.skillInvocationTimeoutMs, forKey: .skillInvocationTimeoutMs)
         try container.encode(self.agentIDs, forKey: .agentIDs)
         try container.encode(self.routeAgentMap, forKey: .routeAgentMap)
     }
