@@ -2,6 +2,66 @@ import Foundation
 import OpenClawCore
 import OpenClawProtocol
 
+/// Runtime generation policy used for model-provider selection and behavior controls.
+public struct ModelGenerationPolicy: Sendable, Equatable {
+    /// Requests token streaming when provider supports it.
+    public let streamTokens: Bool
+    /// Indicates whether runtime cancellation should be honored.
+    public let allowCancellation: Bool
+    /// Optional caller-provided cancellation token identifier.
+    public let cancellationToken: String?
+    /// Optional max token override.
+    public let maxTokens: Int?
+    /// Optional sampling temperature override.
+    public let temperature: Double?
+    /// Optional top-p override.
+    public let topP: Double?
+    /// Optional top-k override.
+    public let topK: Int?
+    /// Optional request timeout override in milliseconds.
+    public let requestTimeoutMs: Int?
+    /// Ordered provider fallback identifiers attempted after primary provider.
+    public let fallbackProviderIDs: [String]
+    /// Optional local-runtime-specific hints (for example hardware/backend toggles).
+    public let localRuntimeHints: [String: String]
+
+    /// Creates generation policy values.
+    /// - Parameters:
+    ///   - streamTokens: Requests streaming behavior.
+    ///   - allowCancellation: Enables cancellation support for this request.
+    ///   - cancellationToken: Optional cancellation token.
+    ///   - maxTokens: Optional max token override.
+    ///   - temperature: Optional temperature override.
+    ///   - topP: Optional top-p override.
+    ///   - topK: Optional top-k override.
+    ///   - requestTimeoutMs: Optional timeout override in milliseconds.
+    ///   - fallbackProviderIDs: Ordered provider fallback chain.
+    ///   - localRuntimeHints: Optional local runtime hints.
+    public init(
+        streamTokens: Bool = false,
+        allowCancellation: Bool = true,
+        cancellationToken: String? = nil,
+        maxTokens: Int? = nil,
+        temperature: Double? = nil,
+        topP: Double? = nil,
+        topK: Int? = nil,
+        requestTimeoutMs: Int? = nil,
+        fallbackProviderIDs: [String] = [],
+        localRuntimeHints: [String: String] = [:]
+    ) {
+        self.streamTokens = streamTokens
+        self.allowCancellation = allowCancellation
+        self.cancellationToken = cancellationToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.maxTokens = maxTokens.map { max(1, $0) }
+        self.temperature = temperature
+        self.topP = topP
+        self.topK = topK.map { max(1, $0) }
+        self.requestTimeoutMs = requestTimeoutMs.map { max(1, $0) }
+        self.fallbackProviderIDs = fallbackProviderIDs
+        self.localRuntimeHints = localRuntimeHints
+    }
+}
+
 /// Input payload passed to model providers.
 public struct ModelGenerationRequest: Sendable, Equatable {
     /// Session key associated with generation request.
@@ -14,6 +74,8 @@ public struct ModelGenerationRequest: Sendable, Equatable {
     public let providerID: String?
     /// Additional provider-specific metadata.
     public let metadata: [String: String]
+    /// Runtime generation policy controls.
+    public let policy: ModelGenerationPolicy
 
     /// Creates a model generation request.
     /// - Parameters:
@@ -22,18 +84,21 @@ public struct ModelGenerationRequest: Sendable, Equatable {
     ///   - systemPrompt: Optional system prompt.
     ///   - providerID: Optional provider override.
     ///   - metadata: Additional metadata.
+    ///   - policy: Runtime generation policy controls.
     public init(
         sessionKey: String,
         prompt: String,
         systemPrompt: String? = nil,
         providerID: String? = nil,
-        metadata: [String: String] = [:]
+        metadata: [String: String] = [:],
+        policy: ModelGenerationPolicy = ModelGenerationPolicy()
     ) {
         self.sessionKey = sessionKey
         self.prompt = prompt
         self.systemPrompt = systemPrompt
         self.providerID = providerID
         self.metadata = metadata
+        self.policy = policy
     }
 }
 
@@ -58,6 +123,23 @@ public struct ModelGenerationResponse: Sendable, Equatable {
     }
 }
 
+/// Streaming chunk payload emitted by providers that support token streaming.
+public struct ModelStreamChunk: Sendable, Equatable {
+    /// Token/text fragment.
+    public let text: String
+    /// Indicates whether this chunk marks end-of-stream payload.
+    public let isFinal: Bool
+
+    /// Creates a streaming chunk.
+    /// - Parameters:
+    ///   - text: Token/text fragment.
+    ///   - isFinal: End-of-stream marker.
+    public init(text: String, isFinal: Bool = false) {
+        self.text = text
+        self.isFinal = isFinal
+    }
+}
+
 /// Interface implemented by model backends.
 public protocol ModelProvider: Sendable {
     /// Stable provider identifier.
@@ -66,6 +148,30 @@ public protocol ModelProvider: Sendable {
     /// - Parameter request: Generation request payload.
     /// - Returns: Generation response payload.
     func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse
+
+    /// Returns a token stream for providers that support streaming generation.
+    /// - Parameter request: Generation request payload.
+    /// - Returns: Async throwing stream of model chunks.
+    func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error>
+}
+
+public extension ModelProvider {
+    /// Default streaming implementation for non-streaming providers.
+    /// - Parameter request: Generation request payload.
+    /// - Returns: Stream with a single final chunk containing full generated text.
+    func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let response = try await self.generate(request)
+                    continuation.yield(ModelStreamChunk(text: response.text, isFinal: true))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
 }
 
 /// Default fallback provider returning deterministic placeholder output.
@@ -140,24 +246,75 @@ public actor ModelRouter {
     /// - Parameter request: Generation request payload.
     /// - Returns: Provider response.
     public func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
-        let requestedID = request.providerID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let fallbackProvider = self.providers[self.defaultProviderID]
-        guard let fallbackProvider else {
-            throw OpenClawCoreError.invalidConfiguration("Default model provider is not registered")
+        let orderedProviderIDs = self.resolveProviderOrder(for: request)
+        var lastError: Error?
+        for providerID in orderedProviderIDs {
+            guard let provider = self.providers[providerID] else {
+                continue
+            }
+            do {
+                return try await provider.generate(request)
+            } catch {
+                lastError = error
+            }
+        }
+        if let lastError {
+            throw lastError
+        }
+        throw OpenClawCoreError.invalidConfiguration(
+            "No registered model providers available for request and fallback chain"
+        )
+    }
+
+    /// Returns a token stream from the first available provider in fallback order.
+    /// - Parameter request: Generation request payload.
+    /// - Returns: Async throwing stream of model chunks.
+    public func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+        let orderedProviderIDs = self.resolveProviderOrder(for: request)
+        for providerID in orderedProviderIDs {
+            if let provider = self.providers[providerID] {
+                return provider.generateStream(request)
+            }
+        }
+        return AsyncThrowingStream { continuation in
+            continuation.finish(
+                throwing: OpenClawCoreError.invalidConfiguration(
+                    "No registered model providers available for streaming request"
+                )
+            )
+        }
+    }
+
+    private func resolveProviderOrder(for request: ModelGenerationRequest) -> [String] {
+        var orderedIDs: [String] = []
+        var seen: Set<String> = []
+
+        func appendProviderID(_ rawID: String?) {
+            guard let rawID else { return }
+            let normalized = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return }
+            if seen.insert(normalized).inserted {
+                orderedIDs.append(normalized)
+            }
         }
 
-        let selectedProvider: any ModelProvider
-        if let requestedID, !requestedID.isEmpty, let provider = self.providers[requestedID] {
-            selectedProvider = provider
-        } else if let fallbackID = request.metadata["fallbackProviderID"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !fallbackID.isEmpty,
-                  let metadataFallback = self.providers[fallbackID]
-        {
-            selectedProvider = metadataFallback
-        } else {
-            selectedProvider = fallbackProvider
+        func appendProviderList(_ rawList: String?) {
+            guard let rawList else { return }
+            let components = rawList.split { character in
+                character == "," || character == ";"
+            }
+            for component in components {
+                appendProviderID(String(component))
+            }
         }
 
-        return try await selectedProvider.generate(request)
+        appendProviderID(request.providerID)
+        for fallbackID in request.policy.fallbackProviderIDs {
+            appendProviderID(fallbackID)
+        }
+        appendProviderList(request.metadata["fallbackProviderID"])
+        appendProviderList(request.metadata["fallbackProviderIDs"])
+        appendProviderID(self.defaultProviderID)
+        return orderedIDs
     }
 }

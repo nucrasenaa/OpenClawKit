@@ -17,6 +17,34 @@ struct ModelRoutingTests {
         }
     }
 
+    struct ThrowingProvider: ModelProvider {
+        let id: String
+        let message: String
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            _ = request
+            throw OpenClawCoreError.unavailable(self.message)
+        }
+    }
+
+    struct StreamingProvider: ModelProvider {
+        let id: String
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            _ = request
+            return ModelGenerationResponse(text: "stream-final", providerID: self.id, modelID: "stream")
+        }
+
+        func generateStream(_ request: ModelGenerationRequest) -> AsyncThrowingStream<ModelStreamChunk, Error> {
+            _ = request
+            return AsyncThrowingStream { continuation in
+                continuation.yield(ModelStreamChunk(text: "stream-", isFinal: false))
+                continuation.yield(ModelStreamChunk(text: "final", isFinal: true))
+                continuation.finish()
+            }
+        }
+    }
+
     actor MockOpenAICompatibleTransport: OpenAICompatibleHTTPTransport {
         let statusCode: Int
         let body: Data
@@ -128,6 +156,68 @@ struct ModelRoutingTests {
         )
         #expect(response.providerID == "secondary")
         #expect(response.text == "secondary-output")
+    }
+
+    @Test
+    func routerFallsBackToNextProviderWhenPrimaryThrows() async throws {
+        let router = ModelRouter(defaultProviderID: "fallback", providers: [
+            ThrowingProvider(id: "primary", message: "primary failed"),
+            StaticProvider(id: "fallback", text: "fallback-output"),
+        ])
+
+        let response = try await router.generate(
+            ModelGenerationRequest(
+                sessionKey: "main",
+                prompt: "hello",
+                providerID: "primary"
+            )
+        )
+
+        #expect(response.providerID == "fallback")
+        #expect(response.text == "fallback-output")
+    }
+
+    @Test
+    func routerUsesOrderedPolicyFallbackChain() async throws {
+        let router = ModelRouter(defaultProviderID: "echo", providers: [
+            ThrowingProvider(id: "primary", message: "primary failed"),
+            ThrowingProvider(id: "secondary", message: "secondary failed"),
+            StaticProvider(id: "tertiary", text: "tertiary-output"),
+            EchoModelProvider(),
+        ])
+
+        let response = try await router.generate(
+            ModelGenerationRequest(
+                sessionKey: "main",
+                prompt: "hello",
+                providerID: "primary",
+                policy: ModelGenerationPolicy(
+                    fallbackProviderIDs: ["secondary", "tertiary"]
+                )
+            )
+        )
+
+        #expect(response.providerID == "tertiary")
+        #expect(response.text == "tertiary-output")
+    }
+
+    @Test
+    func routerGenerateStreamUsesStreamingProviderWhenAvailable() async throws {
+        let router = ModelRouter(defaultProviderID: "streamer", providers: [
+            StreamingProvider(id: "streamer"),
+        ])
+
+        let stream = await router.generateStream(
+            ModelGenerationRequest(sessionKey: "main", prompt: "hello", providerID: "streamer")
+        )
+        var chunks: [ModelStreamChunk] = []
+        for try await chunk in stream {
+            chunks.append(chunk)
+        }
+
+        #expect(chunks.count == 2)
+        #expect(chunks.map(\.text).joined() == "stream-final")
+        #expect(chunks.last?.isFinal == true)
     }
 
     @Test

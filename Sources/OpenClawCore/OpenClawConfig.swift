@@ -647,6 +647,13 @@ public struct LocalModelConfig: Codable, Sendable, Equatable {
     public var contextWindow: Int
     public var temperature: Double
     public var topP: Double
+    public var topK: Int
+    public var useMetal: Bool
+    public var streamTokens: Bool
+    public var allowCancellation: Bool
+    public var requestTimeoutMs: Int
+    public var fallbackModelPaths: [String]
+    public var runtimeOptions: [String: String]
     public var maxTokens: Int
 
     /// Creates local model settings.
@@ -657,6 +664,13 @@ public struct LocalModelConfig: Codable, Sendable, Equatable {
     ///   - contextWindow: Token context window size.
     ///   - temperature: Sampling temperature.
     ///   - topP: Top-p sampling value.
+    ///   - topK: Top-k sampling value.
+    ///   - useMetal: Enables Metal acceleration where available.
+    ///   - streamTokens: Enables token streaming requests.
+    ///   - allowCancellation: Enables cancellation-aware generation requests.
+    ///   - requestTimeoutMs: Default local request timeout in milliseconds.
+    ///   - fallbackModelPaths: Ordered local model fallback paths.
+    ///   - runtimeOptions: Additional runtime-specific option key/value pairs.
     ///   - maxTokens: Maximum generated token count.
     public init(
         enabled: Bool = false,
@@ -665,6 +679,13 @@ public struct LocalModelConfig: Codable, Sendable, Equatable {
         contextWindow: Int = 4096,
         temperature: Double = 0.7,
         topP: Double = 0.95,
+        topK: Int = 40,
+        useMetal: Bool = true,
+        streamTokens: Bool = true,
+        allowCancellation: Bool = true,
+        requestTimeoutMs: Int = 60_000,
+        fallbackModelPaths: [String] = [],
+        runtimeOptions: [String: String] = [:],
         maxTokens: Int = 512
     ) {
         self.enabled = enabled
@@ -673,7 +694,52 @@ public struct LocalModelConfig: Codable, Sendable, Equatable {
         self.contextWindow = contextWindow
         self.temperature = temperature
         self.topP = topP
+        self.topK = max(1, topK)
+        self.useMetal = useMetal
+        self.streamTokens = streamTokens
+        self.allowCancellation = allowCancellation
+        self.requestTimeoutMs = max(1, requestTimeoutMs)
+        self.fallbackModelPaths = fallbackModelPaths
+        self.runtimeOptions = runtimeOptions
         self.maxTokens = max(1, maxTokens)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled
+        case runtime
+        case modelPath
+        case contextWindow
+        case temperature
+        case topP
+        case topK
+        case useMetal
+        case streamTokens
+        case allowCancellation
+        case requestTimeoutMs
+        case fallbackModelPaths
+        case runtimeOptions
+        case maxTokens
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        self.runtime = try container.decodeIfPresent(String.self, forKey: .runtime) ?? "llmfarm"
+        self.modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath)
+        self.contextWindow = try container.decodeIfPresent(Int.self, forKey: .contextWindow) ?? 4096
+        self.temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.7
+        self.topP = try container.decodeIfPresent(Double.self, forKey: .topP) ?? 0.95
+        self.topK = max(1, try container.decodeIfPresent(Int.self, forKey: .topK) ?? 40)
+        self.useMetal = try container.decodeIfPresent(Bool.self, forKey: .useMetal) ?? true
+        self.streamTokens = try container.decodeIfPresent(Bool.self, forKey: .streamTokens) ?? true
+        self.allowCancellation = try container.decodeIfPresent(Bool.self, forKey: .allowCancellation) ?? true
+        self.requestTimeoutMs = max(
+            1,
+            try container.decodeIfPresent(Int.self, forKey: .requestTimeoutMs) ?? 60_000
+        )
+        self.fallbackModelPaths = try container.decodeIfPresent([String].self, forKey: .fallbackModelPaths) ?? []
+        self.runtimeOptions = try container.decodeIfPresent([String: String].self, forKey: .runtimeOptions) ?? [:]
+        self.maxTokens = max(1, try container.decodeIfPresent(Int.self, forKey: .maxTokens) ?? 512)
     }
 }
 

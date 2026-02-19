@@ -74,6 +74,37 @@ struct ConfigSessionRoutingTests {
     }
 
     @Test
+    func localModelConfigDecodesWithDefaultsWhenNewFieldsMissing() throws {
+        let legacyJSON = """
+        {
+          "models": {
+            "defaultProviderID": "local",
+            "local": {
+              "enabled": true,
+              "runtime": "llmfarm",
+              "modelPath": "/tmp/model.gguf",
+              "contextWindow": 4096,
+              "temperature": 0.8,
+              "topP": 0.9,
+              "maxTokens": 256
+            }
+          }
+        }
+        """
+        let decoded = try JSONDecoder().decode(OpenClawConfig.self, from: Data(legacyJSON.utf8))
+        let local = decoded.models.local
+        #expect(local.enabled == true)
+        #expect(local.modelPath == "/tmp/model.gguf")
+        #expect(local.topK == 40)
+        #expect(local.useMetal == true)
+        #expect(local.streamTokens == true)
+        #expect(local.allowCancellation == true)
+        #expect(local.requestTimeoutMs == 60_000)
+        #expect(local.fallbackModelPaths.isEmpty)
+        #expect(local.runtimeOptions.isEmpty)
+    }
+
+    @Test
     func configStoreCacheCanBeCleared() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-config-cache-tests", isDirectory: true)
