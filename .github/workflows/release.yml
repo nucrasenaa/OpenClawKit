@@ -27,10 +27,26 @@ jobs:
             exit 1
           fi
 
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body: |
-            See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and fixes.
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          NOTES_FILE="$(mktemp)"
+
+          cat > "${NOTES_FILE}" <<'EOF'
+          See [CHANGELOG.md](CHANGELOG.md) for the complete list of changes and fixes.
+          EOF
+
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "Release ${VERSION} already exists. Updating release metadata."
+            gh release edit "${VERSION}" \
+              --title "${VERSION}" \
+              --notes-file "${NOTES_FILE}"
+          else
+            echo "Creating new release ${VERSION}."
+            gh release create "${VERSION}" \
+              --title "${VERSION}" \
+              --notes-file "${NOTES_FILE}"
+          fi
