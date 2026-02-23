@@ -8,22 +8,19 @@
 
 /* Begin PBXBuildFile section */
 		7D9B59122F42888800D0476B /* OpenClawKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7D9B59132F42888800D0476B /* OpenClawKit */; };
+		7D9B592A2F5A8A8800D0476B /* skills in Resources */ = {isa = PBXBuildFile; fileRef = 7D9B59212F5A8A8800D0476B /* skills */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		7D9B58E52F42716400D0476B /* OpenClawiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenClawiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7D9B590E2F4272F600D0476B /* OpenClawKit */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = OpenClawKit; path = ../../..; sourceTree = "<group>"; };
+		7D9B59212F5A8A8800D0476B /* skills */ = {isa = PBXFileReference; lastKnownFileType = folder; path = skills; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7D9B58E72F42716400D0476B /* OpenClawiOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = OpenClawiOS;
-			sourceTree = "<group>";
-		};
-		7D9B59212F5A8A8800D0476B /* skills */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = skills;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -83,7 +80,6 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7D9B58E72F42716400D0476B /* OpenClawiOS */,
-				7D9B59212F5A8A8800D0476B /* skills */,
 			);
 			name = OpenClawiOS;
 			packageProductDependencies = (
@@ -135,6 +131,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7D9B592A2F5A8A8800D0476B /* skills in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
