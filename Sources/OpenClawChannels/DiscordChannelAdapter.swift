@@ -136,6 +136,16 @@ public actor DiscordChannelAdapter: ChannelAdapter {
         }
     }
 
+    public func sendTypingIndicator(accountID _: String?, peerID: String) async throws {
+        guard self.started else {
+            throw OpenClawCoreError.unavailable("Discord adapter is not started")
+        }
+        let token = try self.resolveToken()
+        let trimmedPeerID = peerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let channelID = trimmedPeerID.isEmpty ? try self.resolveDefaultChannelID() : trimmedPeerID
+        _ = try await self.sendTypingIndicator(channelID: channelID, token: token)
+    }
+
     private func resolveTargetChannelID(from message: OutboundMessage) -> String? {
         let candidate = message.peerID.trimmingCharacters(in: .whitespacesAndNewlines)
         return candidate.isEmpty ? nil : candidate

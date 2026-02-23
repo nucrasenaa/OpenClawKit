@@ -78,6 +78,49 @@ struct ChannelAutoReplyTests {
         }
     }
 
+    struct SlowPromptProvider: ModelProvider {
+        let id = "slow-prompt"
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            _ = request
+            try await Task.sleep(nanoseconds: 140_000_000)
+            return ModelGenerationResponse(text: "slow-reply", providerID: self.id, modelID: "slow-prompt")
+        }
+    }
+
+    actor TypingAwareChannelAdapter: ChannelAdapter {
+        let id: ChannelID
+        private(set) var started = false
+        private(set) var sentMessages: [OutboundMessage] = []
+        private(set) var typingSignals = 0
+
+        init(id: ChannelID) {
+            self.id = id
+        }
+
+        func start() async throws {
+            self.started = true
+        }
+
+        func stop() async {
+            self.started = false
+        }
+
+        func send(_ message: OutboundMessage) async throws {
+            guard self.started else {
+                throw OpenClawCoreError.unavailable("adapter not started")
+            }
+            self.sentMessages.append(message)
+        }
+
+        func sendTypingIndicator(accountID _: String?, peerID _: String) async throws {
+            guard self.started else {
+                throw OpenClawCoreError.unavailable("adapter not started")
+            }
+            self.typingSignals += 1
+        }
+    }
+
     @Test
     func channelRegistryRoutesMessagesByChannelID() async throws {
         let registry = ChannelRegistry()
@@ -316,6 +359,16 @@ struct ChannelAutoReplyTests {
     }
 
     @Test
+    func typingHeartbeatRepeatsAndStopsForDiscord() async throws {
+        try await self.verifyTypingHeartbeatLifecycle(channelID: .discord)
+    }
+
+    @Test
+    func typingHeartbeatRepeatsAndStopsForTelegram() async throws {
+        try await self.verifyTypingHeartbeatLifecycle(channelID: .telegram)
+    }
+
+    @Test
     func autoReplyEngineInvokesWorkspaceWeatherSkillForNaturalLanguageRequests() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-autoreply-skill-tests", isDirectory: true)
@@ -387,6 +440,46 @@ struct ChannelAutoReplyTests {
         #expect(outbound.text.contains("## Skill Output (weather)"))
         #expect(outbound.text.contains("resolved_location"))
         #expect(outbound.text.contains("San Diego"))
+    }
+
+    private func verifyTypingHeartbeatLifecycle(channelID: ChannelID) async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-typing-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionStore = SessionStore(fileURL: root.appendingPathComponent("sessions.json", isDirectory: false))
+        let registry = ChannelRegistry()
+        let adapter = TypingAwareChannelAdapter(id: channelID)
+        await registry.register(adapter)
+        try await adapter.start()
+
+        let runtime = EmbeddedAgentRuntime()
+        await runtime.registerModelProvider(SlowPromptProvider())
+        try await runtime.setDefaultModelProviderID("slow-prompt")
+
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(
+                agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: root.path),
+                models: ModelsConfig(defaultProviderID: "slow-prompt")
+            ),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime,
+            typingHeartbeatIntervalMs: 25
+        )
+
+        let outbound = try await engine.process(
+            InboundMessage(channel: channelID, accountID: "user-1", peerID: "peer", text: "hello")
+        )
+        #expect(outbound.text == "slow-reply")
+        let typingCountAfterReply = await adapter.typingSignals
+        #expect(typingCountAfterReply >= 2)
+
+        try await Task.sleep(nanoseconds: 80_000_000)
+        let typingCountAfterWait = await adapter.typingSignals
+        #expect(typingCountAfterWait == typingCountAfterReply)
     }
 
     @Test

@@ -189,6 +189,17 @@ public actor TelegramChannelAdapter: InboundChannelAdapter {
         }
     }
 
+    public func sendTypingIndicator(accountID _: String?, peerID: String) async throws {
+        guard self.started else {
+            throw OpenClawCoreError.unavailable("Telegram adapter is not started")
+        }
+        let token = try self.resolveToken()
+        let chatID = try self.resolveTargetChatID(fromPeerID: peerID)
+        guard try await self.sendTypingIndicator(token: token, chatID: chatID) else {
+            throw OpenClawCoreError.unavailable("Telegram typing indicator failed")
+        }
+    }
+
     private func pollLoop(token: String) async {
         while !Task.isCancelled && self.started {
             do {
@@ -322,7 +333,11 @@ public actor TelegramChannelAdapter: InboundChannelAdapter {
     }
 
     private func resolveTargetChatID(from message: OutboundMessage) throws -> Int64 {
-        if let parsed = Int64(message.peerID.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        try self.resolveTargetChatID(fromPeerID: message.peerID)
+    }
+
+    private func resolveTargetChatID(fromPeerID peerID: String) throws -> Int64 {
+        if let parsed = Int64(peerID.trimmingCharacters(in: .whitespacesAndNewlines)) {
             return parsed
         }
         if let configured = self.config.defaultChatID?.trimmingCharacters(in: .whitespacesAndNewlines),

@@ -72,6 +72,16 @@ public protocol ChannelAdapter: Sendable {
     /// Sends an outbound message to the backing channel.
     /// - Parameter message: Outbound payload.
     func send(_ message: OutboundMessage) async throws
+
+    /// Sends a typing indicator for channels that support typing state.
+    /// - Parameters:
+    ///   - accountID: Optional account/user identifier.
+    ///   - peerID: Conversation peer/channel identifier.
+    func sendTypingIndicator(accountID: String?, peerID: String) async throws
+}
+
+public extension ChannelAdapter {
+    func sendTypingIndicator(accountID _: String?, peerID _: String) async throws {}
 }
 
 /// Optional adapter capability for channels that can push inbound messages.
@@ -409,7 +419,9 @@ public actor AutoReplyEngine {
     private let runtime: EmbeddedAgentRuntime
     private let conversationMemoryStore: ConversationMemoryStore?
     private let memoryContextLimit: Int
+    private let typingHeartbeatIntervalMs: Int
     private let diagnosticsSink: RuntimeDiagnosticSink?
+    private static let typingHeartbeatChannels: Set<ChannelID> = [.discord, .telegram]
 
     /// Creates an auto-reply engine.
     /// - Parameters:
@@ -419,6 +431,7 @@ public actor AutoReplyEngine {
     ///   - runtime: Embedded runtime to execute prompts/tools.
     ///   - conversationMemoryStore: Optional persistent conversation memory store.
     ///   - memoryContextLimit: Number of turns included in prompt context.
+    ///   - typingHeartbeatIntervalMs: Typing heartbeat cadence for supported channels.
     public init(
         config: OpenClawConfig,
         sessionStore: SessionStore,
@@ -426,6 +439,7 @@ public actor AutoReplyEngine {
         runtime: EmbeddedAgentRuntime,
         conversationMemoryStore: ConversationMemoryStore? = nil,
         memoryContextLimit: Int = 12,
+        typingHeartbeatIntervalMs: Int = 4_000,
         diagnosticsSink: RuntimeDiagnosticSink? = nil
     ) {
         self.config = config
@@ -434,6 +448,7 @@ public actor AutoReplyEngine {
         self.runtime = runtime
         self.conversationMemoryStore = conversationMemoryStore
         self.memoryContextLimit = max(1, memoryContextLimit)
+        self.typingHeartbeatIntervalMs = max(1, typingHeartbeatIntervalMs)
         self.diagnosticsSink = diagnosticsSink
     }
 
@@ -492,6 +507,20 @@ public actor AutoReplyEngine {
             )
             try await self.channelRegistry.send(commandReply)
             return commandReply
+        }
+
+        let typingHeartbeatTask = await self.startTypingHeartbeat(for: message, sessionKey: sessionKey)
+        defer {
+            typingHeartbeatTask?.cancel()
+            if typingHeartbeatTask != nil {
+                Task {
+                    await self.emitDiagnostic(
+                        name: "typing.heartbeat.stopped",
+                        sessionKey: sessionKey,
+                        metadata: ["channel": message.channel.rawValue]
+                    )
+                }
+            }
         }
 
         let memoryContext = await self.conversationMemoryStore?.formattedContext(
@@ -650,6 +679,69 @@ public actor AutoReplyEngine {
         }
         sections.append("## New User Message\n\(inboundText)")
         return sections.joined(separator: "\n\n")
+    }
+
+    private func startTypingHeartbeat(
+        for message: InboundMessage,
+        sessionKey: String
+    ) async -> Task<Void, Never>? {
+        guard Self.typingHeartbeatChannels.contains(message.channel) else {
+            return nil
+        }
+        guard let adapter = await self.channelRegistry.adapter(for: message.channel) else {
+            return nil
+        }
+
+        do {
+            try await adapter.sendTypingIndicator(accountID: message.accountID, peerID: message.peerID)
+            await self.emitDiagnostic(
+                name: "typing.heartbeat.started",
+                sessionKey: sessionKey,
+                metadata: ["channel": message.channel.rawValue]
+            )
+        } catch {
+            await self.emitDiagnostic(
+                name: "typing.heartbeat.error",
+                sessionKey: sessionKey,
+                metadata: [
+                    "channel": message.channel.rawValue,
+                    "error": String(describing: error),
+                ]
+            )
+            return nil
+        }
+
+        let intervalNs = UInt64(self.typingHeartbeatIntervalMs) * 1_000_000
+        return Task {
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: intervalNs)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else {
+                    return
+                }
+                do {
+                    try await adapter.sendTypingIndicator(accountID: message.accountID, peerID: message.peerID)
+                    await self.emitDiagnostic(
+                        name: "typing.heartbeat.tick",
+                        sessionKey: sessionKey,
+                        metadata: ["channel": message.channel.rawValue]
+                    )
+                } catch {
+                    await self.emitDiagnostic(
+                        name: "typing.heartbeat.error",
+                        sessionKey: sessionKey,
+                        metadata: [
+                            "channel": message.channel.rawValue,
+                            "error": String(describing: error),
+                        ]
+                    )
+                    return
+                }
+            }
+        }
     }
 
     private func shouldUseStreamingRuntime() -> Bool {
