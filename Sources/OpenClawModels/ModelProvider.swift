@@ -140,6 +140,38 @@ public struct ModelStreamChunk: Sendable, Equatable {
     }
 }
 
+/// Request throttling controls applied per model provider.
+public struct ModelProviderThrottlePolicy: Sendable, Equatable {
+    /// Strategy used when provider rate exceeds configured window.
+    public enum Strategy: String, Sendable, Equatable {
+        case delay
+        case drop
+    }
+
+    public let maxRequestsPerWindow: Int
+    public let windowMs: Int
+    public let strategy: Strategy
+
+    /// Creates provider throttle policy values.
+    /// - Parameters:
+    ///   - maxRequestsPerWindow: Maximum requests allowed in one rolling window per provider.
+    ///   - windowMs: Rolling window duration in milliseconds.
+    ///   - strategy: Strategy applied when limit is exceeded.
+    public init(
+        maxRequestsPerWindow: Int = 0,
+        windowMs: Int = 1_000,
+        strategy: Strategy = .delay
+    ) {
+        self.maxRequestsPerWindow = max(0, maxRequestsPerWindow)
+        self.windowMs = max(1, windowMs)
+        self.strategy = strategy
+    }
+
+    var isEnabled: Bool {
+        self.maxRequestsPerWindow > 0
+    }
+}
+
 /// Interface implemented by model backends.
 public protocol ModelProvider: Sendable {
     /// Stable provider identifier.
@@ -200,6 +232,9 @@ public struct EchoModelProvider: ModelProvider {
 public actor ModelRouter {
     private var providers: [String: any ModelProvider]
     private var defaultProviderID: String
+    private var throttlePolicy: ModelProviderThrottlePolicy
+    private var requestTimestampsByProvider: [String: [Date]] = [:]
+    private let diagnosticsSink: RuntimeDiagnosticSink?
 
     /// Creates a model router.
     /// - Parameters:
@@ -207,7 +242,9 @@ public actor ModelRouter {
     ///   - providers: Initial provider list.
     public init(
         defaultProviderID: String = EchoModelProvider.defaultID,
-        providers: [any ModelProvider] = [EchoModelProvider()]
+        providers: [any ModelProvider] = [EchoModelProvider()],
+        throttlePolicy: ModelProviderThrottlePolicy = ModelProviderThrottlePolicy(),
+        diagnosticsSink: RuntimeDiagnosticSink? = nil
     ) {
         var map: [String: any ModelProvider] = [:]
         for provider in providers {
@@ -220,6 +257,8 @@ public actor ModelRouter {
             self.defaultProviderID = defaultProviderID
         }
         self.providers = map
+        self.throttlePolicy = throttlePolicy
+        self.diagnosticsSink = diagnosticsSink
     }
 
     /// Registers or replaces a provider.
@@ -237,6 +276,12 @@ public actor ModelRouter {
         self.defaultProviderID = id
     }
 
+    /// Sets per-provider throttle policy.
+    /// - Parameter policy: Provider throttling policy.
+    public func setThrottlePolicy(_ policy: ModelProviderThrottlePolicy) {
+        self.throttlePolicy = policy
+    }
+
     /// Returns configured provider identifiers sorted alphabetically.
     public func configuredProviderIDs() -> [String] {
         self.providers.keys.sorted()
@@ -248,14 +293,25 @@ public actor ModelRouter {
     public func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
         let orderedProviderIDs = self.resolveProviderOrder(for: request)
         var lastError: Error?
-        for providerID in orderedProviderIDs {
+        for (index, providerID) in orderedProviderIDs.enumerated() {
             guard let provider = self.providers[providerID] else {
                 continue
             }
             do {
+                try await self.applyThrottleIfNeeded(providerID: providerID)
                 return try await provider.generate(request)
             } catch {
                 lastError = error
+                if let nextProviderID = self.nextAvailableProviderID(after: index, in: orderedProviderIDs) {
+                    await self.emitDiagnostic(
+                        name: "model.request.retry",
+                        metadata: [
+                            "fromProviderID": providerID,
+                            "nextProviderID": nextProviderID,
+                            "error": String(describing: error),
+                        ]
+                    )
+                }
             }
         }
         if let lastError {
@@ -271,18 +327,109 @@ public actor ModelRouter {
     /// - Returns: Async throwing stream of model chunks.
     public func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
         let orderedProviderIDs = self.resolveProviderOrder(for: request)
-        for providerID in orderedProviderIDs {
-            if let provider = self.providers[providerID] {
+        var lastError: Error?
+        for (index, providerID) in orderedProviderIDs.enumerated() {
+            guard let provider = self.providers[providerID] else {
+                continue
+            }
+            do {
+                try await self.applyThrottleIfNeeded(providerID: providerID)
                 return await provider.generateStream(request)
+            } catch {
+                lastError = error
+                if let nextProviderID = self.nextAvailableProviderID(after: index, in: orderedProviderIDs) {
+                    await self.emitDiagnostic(
+                        name: "model.request.retry",
+                        metadata: [
+                            "fromProviderID": providerID,
+                            "nextProviderID": nextProviderID,
+                            "error": String(describing: error),
+                            "streaming": "true",
+                        ]
+                    )
+                }
             }
         }
         return AsyncThrowingStream { continuation in
             continuation.finish(
-                throwing: OpenClawCoreError.invalidConfiguration(
+                throwing: lastError ?? OpenClawCoreError.invalidConfiguration(
                     "No registered model providers available for streaming request"
                 )
             )
         }
+    }
+
+    private func applyThrottleIfNeeded(providerID: String) async throws {
+        guard self.throttlePolicy.isEnabled else {
+            return
+        }
+        let now = Date()
+        let windowStart = now.addingTimeInterval(-Double(self.throttlePolicy.windowMs) / 1000.0)
+        var timestamps = (self.requestTimestampsByProvider[providerID] ?? []).filter { $0 >= windowStart }
+
+        if timestamps.count < self.throttlePolicy.maxRequestsPerWindow {
+            timestamps.append(now)
+            self.requestTimestampsByProvider[providerID] = timestamps
+            return
+        }
+
+        switch self.throttlePolicy.strategy {
+        case .drop:
+            await self.emitDiagnostic(
+                name: "model.throttle.drop",
+                metadata: [
+                    "providerID": providerID,
+                    "windowMs": String(self.throttlePolicy.windowMs),
+                    "maxRequestsPerWindow": String(self.throttlePolicy.maxRequestsPerWindow),
+                ]
+            )
+            throw OpenClawCoreError.unavailable("Model provider '\(providerID)' is throttled by policy")
+        case .delay:
+            let earliest = timestamps.first ?? now
+            let releaseAt = earliest.addingTimeInterval(Double(self.throttlePolicy.windowMs) / 1000.0)
+            let delayMs = max(1, Int(releaseAt.timeIntervalSince(now) * 1000))
+            await self.emitDiagnostic(
+                name: "model.throttle.delay",
+                metadata: [
+                    "providerID": providerID,
+                    "delayMs": String(delayMs),
+                    "windowMs": String(self.throttlePolicy.windowMs),
+                    "maxRequestsPerWindow": String(self.throttlePolicy.maxRequestsPerWindow),
+                ]
+            )
+            let sleepNs = UInt64(delayMs) * 1_000_000
+            try await Task.sleep(nanoseconds: sleepNs)
+
+            let delayedNow = Date()
+            let delayedWindowStart = delayedNow.addingTimeInterval(-Double(self.throttlePolicy.windowMs) / 1000.0)
+            timestamps = (self.requestTimestampsByProvider[providerID] ?? []).filter { $0 >= delayedWindowStart }
+            timestamps.append(delayedNow)
+            self.requestTimestampsByProvider[providerID] = timestamps
+        }
+    }
+
+    private func nextAvailableProviderID(after index: Int, in orderedProviderIDs: [String]) -> String? {
+        guard index + 1 < orderedProviderIDs.count else {
+            return nil
+        }
+        for nextIndex in (index + 1)..<orderedProviderIDs.count {
+            let nextProviderID = orderedProviderIDs[nextIndex]
+            if self.providers[nextProviderID] != nil {
+                return nextProviderID
+            }
+        }
+        return nil
+    }
+
+    private func emitDiagnostic(name: String, metadata: [String: String]) async {
+        guard let diagnosticsSink else { return }
+        await diagnosticsSink(
+            RuntimeDiagnosticEvent(
+                subsystem: "model",
+                name: name,
+                metadata: metadata
+            )
+        )
     }
 
     private func resolveProviderOrder(for request: ModelGenerationRequest) -> [String] {

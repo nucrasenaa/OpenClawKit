@@ -191,6 +191,89 @@ struct ChannelAutoReplyTests {
     }
 
     @Test
+    func channelRegistryDelaysBurstAndRecoversAfterCooldown() async throws {
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(
+                maxAttempts: 2,
+                initialBackoffMs: 1,
+                maxBackoffMs: 2,
+                backoffMultiplier: 1
+            ),
+            sendThrottlePolicy: ChannelSendThrottlePolicy(
+                maxSendsPerWindow: 1,
+                windowMs: 80,
+                strategy: .delay
+            )
+        )
+        let telegram = InMemoryChannelAdapter(id: .telegram)
+        await registry.register(telegram)
+        try await telegram.start()
+
+        let startedAt = Date()
+        _ = try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "one"))
+        _ = try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "two"))
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        let sent = await telegram.sentMessages()
+        #expect(sent.count == 2)
+        #expect(elapsed >= 0.07)
+    }
+
+    @Test
+    func channelRegistryDropsWhenThrottlePolicyUsesDropStrategy() async throws {
+        let collector = DiagnosticCollector()
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(maxAttempts: 1),
+            sendThrottlePolicy: ChannelSendThrottlePolicy(
+                maxSendsPerWindow: 1,
+                windowMs: 1_000,
+                strategy: .drop
+            ),
+            diagnosticsSink: { event in
+                await collector.append(event)
+            }
+        )
+        let telegram = InMemoryChannelAdapter(id: .telegram)
+        await registry.register(telegram)
+        try await telegram.start()
+
+        _ = try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "one"))
+        do {
+            _ = try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "two"))
+            Issue.record("Expected throttle drop failure")
+        } catch {
+            #expect(String(describing: error).lowercased().contains("throttled"))
+        }
+
+        let names = await collector.names()
+        #expect(names.contains("channel.throttle.drop"))
+    }
+
+    @Test
+    func channelRegistryEmitsRetryDiagnosticsOnTransientFailures() async throws {
+        let collector = DiagnosticCollector()
+        let registry = ChannelRegistry(
+            sendRetryPolicy: ChannelSendRetryPolicy(
+                maxAttempts: 3,
+                initialBackoffMs: 1,
+                maxBackoffMs: 2,
+                backoffMultiplier: 1
+            ),
+            sendThrottlePolicy: ChannelSendThrottlePolicy(),
+            diagnosticsSink: { event in
+                await collector.append(event)
+            }
+        )
+        let flaky = FlakyChannelAdapter(id: .telegram, failuresBeforeSuccess: 1)
+        await registry.register(flaky)
+        try await flaky.start()
+
+        _ = try await registry.send(OutboundMessage(channel: .telegram, accountID: "default", peerID: "peer", text: "retry"))
+        let names = await collector.names()
+        #expect(names.contains("channel.delivery.retry"))
+    }
+
+    @Test
     func autoReplyEnginePersistsSessionAndDeliversReply() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("openclawkit-autoreply-tests", isDirectory: true)

@@ -202,6 +202,66 @@ struct ModelRoutingTests {
     }
 
     @Test
+    func routerFallsBackWhenPrimaryIsThrottleDropped() async throws {
+        let pipeline = RuntimeDiagnosticsPipeline(eventLimit: 50)
+        let router = ModelRouter(
+            defaultProviderID: "secondary",
+            providers: [
+                StaticProvider(id: "primary", text: "primary-output"),
+                StaticProvider(id: "secondary", text: "secondary-output"),
+            ],
+            throttlePolicy: ModelProviderThrottlePolicy(
+                maxRequestsPerWindow: 1,
+                windowMs: 1_000,
+                strategy: .drop
+            ),
+            diagnosticsSink: await pipeline.sink()
+        )
+
+        let first = try await router.generate(
+            ModelGenerationRequest(sessionKey: "main", prompt: "hello", providerID: "primary")
+        )
+        let second = try await router.generate(
+            ModelGenerationRequest(sessionKey: "main", prompt: "hello", providerID: "primary")
+        )
+
+        #expect(first.providerID == "primary")
+        #expect(second.providerID == "secondary")
+
+        let events = await pipeline.recentEvents(limit: 50)
+        #expect(events.contains(where: { $0.name == "model.throttle.drop" }))
+        #expect(events.contains(where: { $0.name == "model.request.retry" }))
+    }
+
+    @Test
+    func routerThrottleDelayAppliesCooldownAndEmitsDiagnostics() async throws {
+        let pipeline = RuntimeDiagnosticsPipeline(eventLimit: 50)
+        let router = ModelRouter(
+            defaultProviderID: "primary",
+            providers: [StaticProvider(id: "primary", text: "primary-output")],
+            throttlePolicy: ModelProviderThrottlePolicy(
+                maxRequestsPerWindow: 1,
+                windowMs: 70,
+                strategy: .delay
+            ),
+            diagnosticsSink: await pipeline.sink()
+        )
+
+        let startedAt = Date()
+        _ = try await router.generate(
+            ModelGenerationRequest(sessionKey: "main", prompt: "hello", providerID: "primary")
+        )
+        _ = try await router.generate(
+            ModelGenerationRequest(sessionKey: "main", prompt: "hello", providerID: "primary")
+        )
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        #expect(elapsed >= 0.06)
+        let events = await pipeline.recentEvents(limit: 50)
+        #expect(events.contains(where: { $0.name == "model.throttle.delay" }))
+    }
+
+    @Test
     func routerGenerateStreamUsesStreamingProviderWhenAvailable() async throws {
         let router = ModelRouter(defaultProviderID: "streamer", providers: [
             StreamingProvider(id: "streamer"),

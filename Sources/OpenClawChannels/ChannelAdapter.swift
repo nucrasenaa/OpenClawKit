@@ -158,6 +158,38 @@ public struct ChannelSendRetryPolicy: Sendable, Equatable {
     }
 }
 
+/// Outbound send throttling controls applied per channel.
+public struct ChannelSendThrottlePolicy: Sendable, Equatable {
+    /// Strategy used when send rate exceeds configured window.
+    public enum Strategy: String, Sendable, Equatable {
+        case delay
+        case drop
+    }
+
+    public let maxSendsPerWindow: Int
+    public let windowMs: Int
+    public let strategy: Strategy
+
+    /// Creates channel send throttle policy values.
+    /// - Parameters:
+    ///   - maxSendsPerWindow: Maximum sends allowed in one rolling window per channel.
+    ///   - windowMs: Rolling window duration in milliseconds.
+    ///   - strategy: Strategy applied when limit is exceeded.
+    public init(
+        maxSendsPerWindow: Int = 0,
+        windowMs: Int = 1_000,
+        strategy: Strategy = .delay
+    ) {
+        self.maxSendsPerWindow = max(0, maxSendsPerWindow)
+        self.windowMs = max(1, windowMs)
+        self.strategy = strategy
+    }
+
+    var isEnabled: Bool {
+        self.maxSendsPerWindow > 0
+    }
+}
+
 /// Result metadata for one outbound channel delivery attempt sequence.
 public struct ChannelDeliveryOutcome: Sendable, Equatable {
     public let channelID: ChannelID
@@ -211,16 +243,38 @@ public actor ChannelRegistry {
     private var sentMessages: [OutboundMessage] = []
     private var healthSnapshots: [ChannelID: ChannelHealthSnapshot] = [:]
     private let sendRetryPolicy: ChannelSendRetryPolicy
+    private let sendThrottlePolicy: ChannelSendThrottlePolicy
+    private let diagnosticsSink: RuntimeDiagnosticSink?
+    private var sendTimestampsByChannel: [ChannelID: [Date]] = [:]
 
     /// Creates an empty channel registry with default retry policy.
     public init() {
         self.sendRetryPolicy = ChannelSendRetryPolicy()
+        self.sendThrottlePolicy = ChannelSendThrottlePolicy()
+        self.diagnosticsSink = nil
     }
 
     /// Creates a channel registry with an explicit retry policy.
     /// - Parameter sendRetryPolicy: Retry policy for outbound delivery failures.
     public init(sendRetryPolicy: ChannelSendRetryPolicy) {
         self.sendRetryPolicy = sendRetryPolicy
+        self.sendThrottlePolicy = ChannelSendThrottlePolicy()
+        self.diagnosticsSink = nil
+    }
+
+    /// Creates a channel registry with explicit retry and throttle policies.
+    /// - Parameters:
+    ///   - sendRetryPolicy: Retry policy for outbound delivery failures.
+    ///   - sendThrottlePolicy: Per-channel throttling controls.
+    ///   - diagnosticsSink: Optional diagnostics sink for retry/throttle events.
+    public init(
+        sendRetryPolicy: ChannelSendRetryPolicy,
+        sendThrottlePolicy: ChannelSendThrottlePolicy,
+        diagnosticsSink: RuntimeDiagnosticSink? = nil
+    ) {
+        self.sendRetryPolicy = sendRetryPolicy
+        self.sendThrottlePolicy = sendThrottlePolicy
+        self.diagnosticsSink = diagnosticsSink
     }
 
     /// Registers (or replaces) a channel adapter.
@@ -263,6 +317,14 @@ public actor ChannelRegistry {
         guard let adapter = self.adapters[message.channel] else {
             throw OpenClawCoreError.unavailable("No adapter registered for \(message.channel.rawValue)")
         }
+
+        do {
+            try await self.applyThrottleIfNeeded(channelID: message.channel)
+        } catch {
+            self.recordSendFailure(channelID: message.channel, error: error, terminal: true)
+            throw error
+        }
+
         let maxAttempts = self.sendRetryPolicy.maxAttempts
         var backoffMs = self.sendRetryPolicy.initialBackoffMs
         var attempts = 0
@@ -287,6 +349,16 @@ public actor ChannelRegistry {
                 if terminal {
                     break
                 }
+                await self.emitDiagnostic(
+                    name: "channel.delivery.retry",
+                    metadata: [
+                        "channel": message.channel.rawValue,
+                        "attempt": String(attempt),
+                        "nextAttempt": String(attempt + 1),
+                        "backoffMs": String(backoffMs),
+                        "error": String(describing: error),
+                    ]
+                )
                 let sleepNs = UInt64(max(1, backoffMs)) * 1_000_000
                 try? await Task.sleep(nanoseconds: sleepNs)
                 let grown = Int(Double(backoffMs) * self.sendRetryPolicy.backoffMultiplier)
@@ -328,6 +400,11 @@ public actor ChannelRegistry {
         self.sendRetryPolicy
     }
 
+    /// Returns throttle policy used for channel delivery attempts.
+    public func throttlePolicy() -> ChannelSendThrottlePolicy {
+        self.sendThrottlePolicy
+    }
+
     private func recordSendSuccess(channelID: ChannelID) -> ChannelHealthSnapshot {
         let previous = self.healthSnapshots[channelID] ?? ChannelHealthSnapshot(channelID: channelID, status: .offline)
         let snapshot = ChannelHealthSnapshot(
@@ -340,6 +417,60 @@ public actor ChannelRegistry {
         )
         self.healthSnapshots[channelID] = snapshot
         return snapshot
+    }
+
+    private func applyThrottleIfNeeded(channelID: ChannelID) async throws {
+        guard self.sendThrottlePolicy.isEnabled else {
+            return
+        }
+        let now = Date()
+        let windowStart = now.addingTimeInterval(-Double(self.sendThrottlePolicy.windowMs) / 1000.0)
+        var timestamps = (self.sendTimestampsByChannel[channelID] ?? []).filter { $0 >= windowStart }
+
+        if timestamps.count < self.sendThrottlePolicy.maxSendsPerWindow {
+            timestamps.append(now)
+            self.sendTimestampsByChannel[channelID] = timestamps
+            return
+        }
+
+        switch self.sendThrottlePolicy.strategy {
+        case .drop:
+            await self.emitDiagnostic(
+                name: "channel.throttle.drop",
+                metadata: [
+                    "channel": channelID.rawValue,
+                    "windowMs": String(self.sendThrottlePolicy.windowMs),
+                    "maxSendsPerWindow": String(self.sendThrottlePolicy.maxSendsPerWindow),
+                ]
+            )
+            throw ChannelDeliveryFailure(
+                channelID: channelID,
+                attempts: 1,
+                status: .degraded,
+                detail: "Throttled by channel send policy"
+            )
+        case .delay:
+            let earliest = timestamps.first ?? now
+            let releaseAt = earliest.addingTimeInterval(Double(self.sendThrottlePolicy.windowMs) / 1000.0)
+            let delayMs = max(1, Int(releaseAt.timeIntervalSince(now) * 1000))
+            await self.emitDiagnostic(
+                name: "channel.throttle.delay",
+                metadata: [
+                    "channel": channelID.rawValue,
+                    "delayMs": String(delayMs),
+                    "windowMs": String(self.sendThrottlePolicy.windowMs),
+                    "maxSendsPerWindow": String(self.sendThrottlePolicy.maxSendsPerWindow),
+                ]
+            )
+            let sleepNs = UInt64(delayMs) * 1_000_000
+            try await Task.sleep(nanoseconds: sleepNs)
+
+            let afterDelay = Date()
+            let delayedWindowStart = afterDelay.addingTimeInterval(-Double(self.sendThrottlePolicy.windowMs) / 1000.0)
+            timestamps = (self.sendTimestampsByChannel[channelID] ?? []).filter { $0 >= delayedWindowStart }
+            timestamps.append(afterDelay)
+            self.sendTimestampsByChannel[channelID] = timestamps
+        }
     }
 
     private func recordSendFailure(channelID: ChannelID, error: Error, terminal: Bool) {
@@ -371,6 +502,17 @@ public actor ChannelRegistry {
     private func mapDeliveryError(error: Error?) -> String {
         let detail = (error as? LocalizedError)?.errorDescription ?? String(describing: error ?? OpenClawCoreError.unavailable("unknown"))
         return detail
+    }
+
+    private func emitDiagnostic(name: String, metadata: [String: String]) async {
+        guard let diagnosticsSink else { return }
+        await diagnosticsSink(
+            RuntimeDiagnosticEvent(
+                subsystem: "channel",
+                name: name,
+                metadata: metadata
+            )
+        )
     }
 }
 
