@@ -130,6 +130,47 @@ public struct OpenClawSDK: Sendable {
         RuntimeDiagnosticsPipeline(eventLimit: eventLimit)
     }
 
+    /// Runs a lightweight security audit and optionally publishes findings to diagnostics.
+    /// - Parameters:
+    ///   - options: Security audit options.
+    ///   - diagnosticsPipeline: Optional diagnostics pipeline for structured audit events.
+    /// - Returns: Security audit report.
+    public func runSecurityAudit(
+        options: SecurityAuditOptions = SecurityAuditOptions(),
+        diagnosticsPipeline: RuntimeDiagnosticsPipeline? = nil
+    ) async -> SecurityAuditReport {
+        let report = SecurityAuditRunner.run(options: options)
+        if let diagnosticsPipeline {
+            await diagnosticsPipeline.record(
+                RuntimeDiagnosticEvent(
+                    subsystem: "security",
+                    name: "audit.completed",
+                    metadata: [
+                        "totalFindings": String(report.findings.count),
+                        "errors": String(report.count(for: .error)),
+                        "warnings": String(report.count(for: .warning)),
+                        "highestSeverity": report.highestSeverity.rawValue,
+                    ]
+                )
+            )
+            for finding in report.findings {
+                await diagnosticsPipeline.record(
+                    RuntimeDiagnosticEvent(
+                        subsystem: "security",
+                        name: "audit.finding",
+                        metadata: [
+                            "id": finding.id,
+                            "severity": finding.severity.rawValue,
+                            "summary": finding.summary,
+                            "path": finding.filePath ?? "",
+                        ]
+                    )
+                )
+            }
+        }
+        return report
+    }
+
     /// Builds an auto-reply engine backed by in-memory web channel adapter.
     /// - Parameters:
     ///   - config: Runtime configuration.
