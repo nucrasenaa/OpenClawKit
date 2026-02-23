@@ -25,6 +25,7 @@ struct ChatView: View {
                         .padding(.horizontal)
                         .padding(.vertical, 8)
                     }
+                    .scrollDismissesKeyboard(.interactively)
                     .onChange(of: appState.messages.count) { _, _ in
                         guard let lastID = appState.messages.last?.id else { return }
                         withAnimation {
@@ -60,6 +61,14 @@ struct ChatView: View {
                 .padding(.bottom, 8)
             }
             .navigationTitle("Chat")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
         }
     }
 }

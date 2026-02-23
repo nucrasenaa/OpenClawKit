@@ -103,6 +103,14 @@ struct DeployView: View {
                 }
             }
             .navigationTitle("Deploy")
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
+            }
             .onChange(of: appState.selectedProvider) { _, newValue in
                 if appState.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     appState.selectedModelID = newValue.defaultModelID
