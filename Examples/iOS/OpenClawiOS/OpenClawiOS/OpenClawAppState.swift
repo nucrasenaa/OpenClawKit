@@ -169,13 +169,8 @@ final class OpenClawAppState: ObservableObject {
         var personality: String
 
         init(
-            discordBotToken: String,
             discordChannelID: String,
-            openAIAPIKey: String,
-            openAICompatibleAPIKey: String,
             openAICompatibleBaseURL: String,
-            anthropicAPIKey: String,
-            geminiAPIKey: String,
             selectedProvider: DeployProvider,
             selectedModelID: String,
             localRuntime: String,
@@ -193,7 +188,12 @@ final class OpenClawAppState: ObservableObject {
             defaultAgentID: String,
             discordAgentID: String,
             webchatAgentID: String,
-            personality: String
+            personality: String,
+            discordBotToken: String = "",
+            openAIAPIKey: String = "",
+            openAICompatibleAPIKey: String = "",
+            anthropicAPIKey: String = "",
+            geminiAPIKey: String = ""
         ) {
             self.discordBotToken = discordBotToken
             self.discordChannelID = discordChannelID
@@ -223,13 +223,8 @@ final class OpenClawAppState: ObservableObject {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case discordBotToken
             case discordChannelID
-            case openAIAPIKey
-            case openAICompatibleAPIKey
             case openAICompatibleBaseURL
-            case anthropicAPIKey
-            case geminiAPIKey
             case selectedProvider
             case selectedModelID
             case localRuntime
@@ -250,15 +245,18 @@ final class OpenClawAppState: ObservableObject {
             case personality
         }
 
+        private enum LegacySecretCodingKeys: String, CodingKey {
+            case discordBotToken
+            case openAIAPIKey
+            case openAICompatibleAPIKey
+            case anthropicAPIKey
+            case geminiAPIKey
+        }
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.discordBotToken = try container.decodeIfPresent(String.self, forKey: .discordBotToken) ?? ""
             self.discordChannelID = try container.decodeIfPresent(String.self, forKey: .discordChannelID) ?? ""
-            self.openAIAPIKey = try container.decodeIfPresent(String.self, forKey: .openAIAPIKey) ?? ""
-            self.openAICompatibleAPIKey = try container.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? ""
             self.openAICompatibleBaseURL = try container.decodeIfPresent(String.self, forKey: .openAICompatibleBaseURL) ?? "https://api.openai.com/v1"
-            self.anthropicAPIKey = try container.decodeIfPresent(String.self, forKey: .anthropicAPIKey) ?? ""
-            self.geminiAPIKey = try container.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
             self.selectedProvider = try container.decodeIfPresent(DeployProvider.self, forKey: .selectedProvider) ?? .openAI
             self.selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID) ?? self.selectedProvider.defaultModelID
             self.localRuntime = try container.decodeIfPresent(String.self, forKey: .localRuntime) ?? "llmfarm"
@@ -277,7 +275,90 @@ final class OpenClawAppState: ObservableObject {
             self.discordAgentID = try container.decodeIfPresent(String.self, forKey: .discordAgentID) ?? ""
             self.webchatAgentID = try container.decodeIfPresent(String.self, forKey: .webchatAgentID) ?? ""
             self.personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
+
+            let legacy = try decoder.container(keyedBy: LegacySecretCodingKeys.self)
+            self.discordBotToken = try legacy.decodeIfPresent(String.self, forKey: .discordBotToken) ?? ""
+            self.openAIAPIKey = try legacy.decodeIfPresent(String.self, forKey: .openAIAPIKey) ?? ""
+            self.openAICompatibleAPIKey = try legacy.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? ""
+            self.anthropicAPIKey = try legacy.decodeIfPresent(String.self, forKey: .anthropicAPIKey) ?? ""
+            self.geminiAPIKey = try legacy.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
         }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(self.discordChannelID, forKey: .discordChannelID)
+            try container.encode(self.openAICompatibleBaseURL, forKey: .openAICompatibleBaseURL)
+            try container.encode(self.selectedProvider, forKey: .selectedProvider)
+            try container.encode(self.selectedModelID, forKey: .selectedModelID)
+            try container.encode(self.localRuntime, forKey: .localRuntime)
+            try container.encode(self.localModelPath, forKey: .localModelPath)
+            try container.encode(self.localFallbackModelPaths, forKey: .localFallbackModelPaths)
+            try container.encode(self.localContextWindow, forKey: .localContextWindow)
+            try container.encode(self.localTemperature, forKey: .localTemperature)
+            try container.encode(self.localTopP, forKey: .localTopP)
+            try container.encode(self.localTopK, forKey: .localTopK)
+            try container.encode(self.localMaxTokens, forKey: .localMaxTokens)
+            try container.encode(self.localUseMetal, forKey: .localUseMetal)
+            try container.encode(self.localStreamTokens, forKey: .localStreamTokens)
+            try container.encode(self.localAllowCancellation, forKey: .localAllowCancellation)
+            try container.encode(self.localRequestTimeoutMs, forKey: .localRequestTimeoutMs)
+            try container.encode(self.defaultAgentID, forKey: .defaultAgentID)
+            try container.encode(self.discordAgentID, forKey: .discordAgentID)
+            try container.encode(self.webchatAgentID, forKey: .webchatAgentID)
+            try container.encode(self.personality, forKey: .personality)
+        }
+    }
+
+    /// Secret values that may need secure-store migration.
+    private struct SecretSnapshot: Sendable, Equatable {
+        var discordBotToken: String
+        var openAIAPIKey: String
+        var openAICompatibleAPIKey: String
+        var anthropicAPIKey: String
+        var geminiAPIKey: String
+
+        static let empty = SecretSnapshot(
+            discordBotToken: "",
+            openAIAPIKey: "",
+            openAICompatibleAPIKey: "",
+            anthropicAPIKey: "",
+            geminiAPIKey: ""
+        )
+
+        var legacySecretsByStoreKey: [String: String] {
+            [
+                SecretStoreKey.discordBotToken: self.discordBotToken,
+                SecretStoreKey.openAIAPIKey: self.openAIAPIKey,
+                SecretStoreKey.openAICompatibleAPIKey: self.openAICompatibleAPIKey,
+                SecretStoreKey.anthropicAPIKey: self.anthropicAPIKey,
+                SecretStoreKey.geminiAPIKey: self.geminiAPIKey,
+            ]
+        }
+
+        var containsAnySecret: Bool {
+            !self.discordBotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.openAICompatibleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.anthropicAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    /// Stable secret keys used by the credential store.
+    private enum SecretStoreKey {
+        static let discordBotToken = "channels.discord.botToken"
+        static let openAIAPIKey = "models.openai.apiKey"
+        static let openAICompatibleAPIKey = "models.openaiCompatible.apiKey"
+        static let anthropicAPIKey = "models.anthropic.apiKey"
+        static let geminiAPIKey = "models.gemini.apiKey"
+
+        static let ordered: [String] = [
+            discordBotToken,
+            openAIAPIKey,
+            openAICompatibleAPIKey,
+            anthropicAPIKey,
+            geminiAPIKey,
+        ]
     }
 
     @Published var discordBotToken: String = ""
@@ -379,7 +460,9 @@ final class OpenClawAppState: ObservableObject {
     private let sessionsURL: URL
     private let messagesURL: URL
     private let settingsURL: URL
+    private let credentialsFallbackURL: URL
     private let conversationMemoryURL: URL
+    private let credentialStore: any CredentialStore
     private let sharedConversationSessionKey = "shared"
 
     private var webchatAdapter: InMemoryChannelAdapter?
@@ -390,6 +473,8 @@ final class OpenClawAppState: ObservableObject {
     private var diagnosticsPipeline: RuntimeDiagnosticsPipeline?
     private var summaryTask: Task<Void, Never>?
     private var observabilityTask: Task<Void, Never>?
+    private var legacySecrets: SecretSnapshot = .empty
+    private var secretsHydrated = false
 
     /// Creates and initializes app state from persisted local storage.
     init() {
@@ -402,10 +487,18 @@ final class OpenClawAppState: ObservableObject {
         self.sessionsURL = self.stateRoot.appendingPathComponent("sessions.json")
         self.messagesURL = self.stateRoot.appendingPathComponent("chat-messages.json")
         self.settingsURL = self.stateRoot.appendingPathComponent("deploy-settings.json")
+        self.credentialsFallbackURL = self.stateRoot.appendingPathComponent("credentials.json")
         self.conversationMemoryURL = self.stateRoot.appendingPathComponent("conversation-memory.json")
+        self.credentialStore = CredentialStoreFactory.makeDefault(
+            fallbackFileURL: self.credentialsFallbackURL,
+            keychainService: "io.marcodotio.openclawkit.examples.ios.credentials"
+        )
 
         self.loadPersistedSettings()
         self.loadPersistedMessages()
+        Task {
+            await self.loadSecureSecretsAndMigrateLegacy()
+        }
     }
 
     /// Starts runtime deployment using current credentials and settings.
@@ -417,6 +510,10 @@ final class OpenClawAppState: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: self.stateRoot, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: self.workspaceURL, withIntermediateDirectories: true)
+            if !self.secretsHydrated {
+                await self.loadSecureSecretsAndMigrateLegacy()
+            }
+            try await self.persistSecretsToSecureStore()
             try self.persistBootstrapFiles()
             try self.syncProjectSkillsIntoWorkspace()
 
@@ -866,13 +963,16 @@ final class OpenClawAppState: ObservableObject {
         else {
             return
         }
-        self.discordBotToken = settings.discordBotToken
+        self.legacySecrets = SecretSnapshot(
+            discordBotToken: settings.discordBotToken,
+            openAIAPIKey: settings.openAIAPIKey,
+            openAICompatibleAPIKey: settings.openAICompatibleAPIKey,
+            anthropicAPIKey: settings.anthropicAPIKey,
+            geminiAPIKey: settings.geminiAPIKey
+        )
+        self.applySecretSnapshot(self.legacySecrets)
         self.discordChannelID = settings.discordChannelID
-        self.openAIAPIKey = settings.openAIAPIKey
-        self.openAICompatibleAPIKey = settings.openAICompatibleAPIKey
         self.openAICompatibleBaseURL = settings.openAICompatibleBaseURL
-        self.anthropicAPIKey = settings.anthropicAPIKey
-        self.geminiAPIKey = settings.geminiAPIKey
         self.selectedProvider = settings.selectedProvider
         self.selectedModelID = settings.selectedModelID
         self.localRuntime = settings.localRuntime
@@ -902,13 +1002,8 @@ final class OpenClawAppState: ObservableObject {
     /// Persists deployment settings to local storage.
     private func persistSettings() throws {
         let settings = PersistedSettings(
-            discordBotToken: self.discordBotToken,
             discordChannelID: self.discordChannelID,
-            openAIAPIKey: self.openAIAPIKey,
-            openAICompatibleAPIKey: self.openAICompatibleAPIKey,
             openAICompatibleBaseURL: self.openAICompatibleBaseURL,
-            anthropicAPIKey: self.anthropicAPIKey,
-            geminiAPIKey: self.geminiAPIKey,
             selectedProvider: self.selectedProvider,
             selectedModelID: self.selectedModelID,
             localRuntime: self.localRuntime,
@@ -928,8 +1023,92 @@ final class OpenClawAppState: ObservableObject {
             webchatAgentID: self.webchatAgentID,
             personality: self.personality
         )
+        try FileManager.default.createDirectory(at: self.stateRoot, withIntermediateDirectories: true)
         let data = try self.encoder.encode(settings)
         try data.write(to: self.settingsURL, options: [.atomic])
+    }
+
+    /// Loads secure-store secrets and migrates any legacy plaintext values.
+    private func loadSecureSecretsAndMigrateLegacy() async {
+        do {
+            let secureSecrets = try await self.readSecretsFromSecureStore()
+            let legacyMap = self.legacySecrets.legacySecretsByStoreKey
+            let hadLegacyPlaintext = self.legacySecrets.containsAnySecret
+            let migration = CredentialSecretMigration.resolve(
+                secureStoreSecrets: secureSecrets,
+                legacySecrets: legacyMap
+            )
+
+            for key in SecretStoreKey.ordered {
+                guard let value = migration.valuesToPersist[key] else {
+                    continue
+                }
+                try await self.credentialStore.saveSecret(value, for: key)
+            }
+            self.applySecrets(fromResolvedMap: migration.resolvedSecrets)
+            self.secretsHydrated = true
+
+            if hadLegacyPlaintext {
+                self.legacySecrets = .empty
+                try self.persistSettings()
+            }
+        } catch {
+            self.secretsHydrated = true
+            self.statusText = "Warning: failed to load secure credentials."
+        }
+    }
+
+    /// Persists in-memory secrets into secure storage.
+    private func persistSecretsToSecureStore() async throws {
+        try await self.writeSecret(self.discordBotToken, for: SecretStoreKey.discordBotToken)
+        try await self.writeSecret(self.openAIAPIKey, for: SecretStoreKey.openAIAPIKey)
+        try await self.writeSecret(self.openAICompatibleAPIKey, for: SecretStoreKey.openAICompatibleAPIKey)
+        try await self.writeSecret(self.anthropicAPIKey, for: SecretStoreKey.anthropicAPIKey)
+        try await self.writeSecret(self.geminiAPIKey, for: SecretStoreKey.geminiAPIKey)
+    }
+
+    /// Writes or deletes one secret in the secure store based on current value.
+    private func writeSecret(_ value: String, for key: String) async throws {
+        if let nonEmpty = normalized(value) {
+            try await self.credentialStore.saveSecret(nonEmpty, for: key)
+        } else {
+            try await self.credentialStore.deleteSecret(for: key)
+        }
+    }
+
+    /// Reads all known secrets from secure storage.
+    private func readSecretsFromSecureStore() async throws -> [String: String] {
+        var secrets: [String: String] = [:]
+        for key in SecretStoreKey.ordered {
+            guard let value = try await self.credentialStore.loadSecret(for: key),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                continue
+            }
+            secrets[key] = value
+        }
+        return secrets
+    }
+
+    /// Applies resolved secret map values onto published UI state.
+    private func applySecrets(fromResolvedMap map: [String: String]) {
+        let snapshot = SecretSnapshot(
+            discordBotToken: map[SecretStoreKey.discordBotToken] ?? "",
+            openAIAPIKey: map[SecretStoreKey.openAIAPIKey] ?? "",
+            openAICompatibleAPIKey: map[SecretStoreKey.openAICompatibleAPIKey] ?? "",
+            anthropicAPIKey: map[SecretStoreKey.anthropicAPIKey] ?? "",
+            geminiAPIKey: map[SecretStoreKey.geminiAPIKey] ?? ""
+        )
+        self.applySecretSnapshot(snapshot)
+    }
+
+    /// Applies a snapshot of secret values onto published fields.
+    private func applySecretSnapshot(_ snapshot: SecretSnapshot) {
+        self.discordBotToken = snapshot.discordBotToken
+        self.openAIAPIKey = snapshot.openAIAPIKey
+        self.openAICompatibleAPIKey = snapshot.openAICompatibleAPIKey
+        self.anthropicAPIKey = snapshot.anthropicAPIKey
+        self.geminiAPIKey = snapshot.geminiAPIKey
     }
 
     /// Persists personality text as workspace bootstrap context.

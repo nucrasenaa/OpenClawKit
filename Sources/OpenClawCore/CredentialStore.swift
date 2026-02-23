@@ -22,6 +22,60 @@ public protocol CredentialStore: Sendable {
     func deleteSecret(for key: String) async throws
 }
 
+/// Result payload from resolving secure-store values against legacy plaintext values.
+public struct CredentialSecretMigrationResult: Sendable, Equatable {
+    /// Final values that should be used by the host application.
+    public let resolvedSecrets: [String: String]
+    /// Values that should be persisted into secure storage as migration backfill.
+    public let valuesToPersist: [String: String]
+
+    /// Creates a migration result.
+    /// - Parameters:
+    ///   - resolvedSecrets: Effective merged secret values.
+    ///   - valuesToPersist: Values that must be written to secure storage.
+    public init(resolvedSecrets: [String: String], valuesToPersist: [String: String]) {
+        self.resolvedSecrets = resolvedSecrets
+        self.valuesToPersist = valuesToPersist
+    }
+}
+
+/// Utility for merging legacy plaintext secrets with secure-store values.
+public enum CredentialSecretMigration {
+    /// Resolves effective secrets from existing secure-store and legacy plaintext values.
+    ///
+    /// For each key:
+    /// - secure-store value wins when present and non-empty
+    /// - otherwise non-empty legacy value is selected and marked for secure-store persistence
+    /// - empty values are omitted from the result
+    ///
+    /// - Parameters:
+    ///   - secureStoreSecrets: Secrets currently available from secure storage.
+    ///   - legacySecrets: Legacy plaintext secrets from old settings payloads.
+    /// - Returns: Migration result containing effective values and backfill set.
+    public static func resolve(
+        secureStoreSecrets: [String: String],
+        legacySecrets: [String: String]
+    ) -> CredentialSecretMigrationResult {
+        let allKeys = Set(secureStoreSecrets.keys).union(legacySecrets.keys)
+        var resolved: [String: String] = [:]
+        var toPersist: [String: String] = [:]
+
+        for key in allKeys {
+            let secureValue = secureStoreSecrets[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let legacyValue = legacySecrets[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !secureValue.isEmpty {
+                resolved[key] = secureValue
+                continue
+            }
+            if !legacyValue.isEmpty {
+                resolved[key] = legacyValue
+                toPersist[key] = legacyValue
+            }
+        }
+        return CredentialSecretMigrationResult(resolvedSecrets: resolved, valuesToPersist: toPersist)
+    }
+}
+
 private struct CredentialFilePayload: Codable, Sendable {
     let version: Int
     var secrets: [String: String]

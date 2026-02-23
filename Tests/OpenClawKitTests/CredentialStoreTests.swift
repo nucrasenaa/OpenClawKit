@@ -58,6 +58,43 @@ struct CredentialStoreTests {
         #endif
     }
 
+    @Test
+    func credentialSecretMigrationBackfillsLegacyWhenSecureStoreMissing() {
+        let result = CredentialSecretMigration.resolve(
+            secureStoreSecrets: [
+                "discord": "secure-discord-token",
+                "openai": "",
+            ],
+            legacySecrets: [
+                "discord": "legacy-discord-token",
+                "openai": "legacy-openai-token",
+                "anthropic": "legacy-anthropic-token",
+            ]
+        )
+
+        #expect(result.resolvedSecrets["discord"] == "secure-discord-token")
+        #expect(result.resolvedSecrets["openai"] == "legacy-openai-token")
+        #expect(result.resolvedSecrets["anthropic"] == "legacy-anthropic-token")
+        #expect(result.valuesToPersist["openai"] == "legacy-openai-token")
+        #expect(result.valuesToPersist["anthropic"] == "legacy-anthropic-token")
+        #expect(result.valuesToPersist["discord"] == nil)
+    }
+
+    @Test
+    func credentialSecretMigrationOmitsEmptyValues() {
+        let result = CredentialSecretMigration.resolve(
+            secureStoreSecrets: [
+                "gemini": "   ",
+            ],
+            legacySecrets: [
+                "gemini": "",
+            ]
+        )
+
+        #expect(result.resolvedSecrets.isEmpty)
+        #expect(result.valuesToPersist.isEmpty)
+    }
+
     #if canImport(Security)
     @Test
     func keychainCredentialStoreRoundTripAndDelete() async throws {
