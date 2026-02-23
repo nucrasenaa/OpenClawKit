@@ -112,6 +112,31 @@ public struct AgentRunResult: Sendable {
     }
 }
 
+/// Stream chunk emitted during a streaming agent run.
+public struct AgentRunStreamChunk: Sendable, Equatable {
+    /// Correlated run identifier.
+    public let runID: String
+    /// Session key for this run.
+    public let sessionKey: String
+    /// Incremental text payload.
+    public let text: String
+    /// Indicates whether this is the terminal stream chunk.
+    public let isFinal: Bool
+
+    /// Creates a stream chunk payload.
+    /// - Parameters:
+    ///   - runID: Correlated run identifier.
+    ///   - sessionKey: Session key.
+    ///   - text: Incremental text.
+    ///   - isFinal: Terminal marker.
+    public init(runID: String, sessionKey: String, text: String, isFinal: Bool) {
+        self.runID = runID
+        self.sessionKey = sessionKey
+        self.text = text
+        self.isFinal = isFinal
+    }
+}
+
 /// Actor that orchestrates tool execution, gateway lifecycle, and model generation.
 public actor EmbeddedAgentRuntime {
     private let gatewayClient: GatewayClient
@@ -307,6 +332,162 @@ public actor EmbeddedAgentRuntime {
                 ]
             )
             throw error
+        }
+    }
+
+    /// Executes an agent run and streams incremental model output chunks.
+    /// - Parameters:
+    ///   - request: Run request payload.
+    ///   - timeoutMs: Timeout hint propagated to model providers.
+    /// - Returns: Stream of output chunks for progressive rendering.
+    public func runStream(
+        _ request: AgentRunRequest,
+        timeoutMs: Int = 30_000
+    ) -> AsyncThrowingStream<AgentRunStreamChunk, Error> {
+        let timeoutMs = max(1, timeoutMs)
+        return AsyncThrowingStream { continuation in
+            Task {
+                let runID = request.runID
+                let runStartedAt = Date()
+                do {
+                    await self.emitDiagnostic(
+                        name: "run.started",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "requestedProviderID": request.modelProviderID ?? "",
+                            "toolCallCount": String(request.toolCalls.count),
+                            "streaming": "true",
+                        ]
+                    )
+                    await self.emitDiagnostic(
+                        name: "model.call.started",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "requestedProviderID": request.modelProviderID ?? "",
+                            "streaming": "true",
+                        ]
+                    )
+
+                    let composedPrompt = try await Self.composePrompt(
+                        basePrompt: request.prompt,
+                        workspaceRootPath: request.workspaceRootPath
+                    )
+
+                    if await self.gatewayClient.isConnected() == false {
+                        try await self.gatewayClient.connect(
+                            to: GatewayEndpoint(url: URL(string: "ws://127.0.0.1:18789")!)
+                        )
+                    }
+
+                    for call in request.toolCalls {
+                        _ = try await self.toolRegistry.execute(call)
+                    }
+
+                    _ = try await self.gatewayClient.send(method: "agent.run", params: [
+                        "sessionKey": AnyCodable(request.sessionKey),
+                        "prompt": AnyCodable(composedPrompt),
+                    ])
+
+                    let modelStartedAt = Date()
+                    let modelStream = await self.modelRouter.generateStream(
+                        ModelGenerationRequest(
+                            sessionKey: request.sessionKey,
+                            prompt: composedPrompt,
+                            providerID: request.modelProviderID,
+                            policy: ModelGenerationPolicy(
+                                streamTokens: true,
+                                requestTimeoutMs: timeoutMs
+                            )
+                        )
+                    )
+
+                    var output = ""
+                    var sawFinal = false
+                    for try await chunk in modelStream {
+                        if Task.isCancelled {
+                            throw CancellationError()
+                        }
+                        output += chunk.text
+                        if chunk.isFinal {
+                            sawFinal = true
+                        }
+                        continuation.yield(
+                            AgentRunStreamChunk(
+                                runID: runID,
+                                sessionKey: request.sessionKey,
+                                text: chunk.text,
+                                isFinal: chunk.isFinal
+                            )
+                        )
+                    }
+                    if !sawFinal {
+                        continuation.yield(
+                            AgentRunStreamChunk(
+                                runID: runID,
+                                sessionKey: request.sessionKey,
+                                text: "",
+                                isFinal: true
+                            )
+                        )
+                    }
+
+                    let modelLatencyMs = max(0, Int(Date().timeIntervalSince(modelStartedAt) * 1000))
+                    await self.emitDiagnostic(
+                        name: "model.call.completed",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "providerID": request.modelProviderID ?? "",
+                            "modelID": "",
+                            "latencyMs": String(modelLatencyMs),
+                            "streaming": "true",
+                        ]
+                    )
+                    let runLatencyMs = max(0, Int(Date().timeIntervalSince(runStartedAt) * 1000))
+                    await self.emitDiagnostic(
+                        name: "run.completed",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "latencyMs": String(runLatencyMs),
+                            "providerID": request.modelProviderID ?? "",
+                            "modelID": "",
+                            "outputLength": String(output.count),
+                            "streaming": "true",
+                        ]
+                    )
+                    continuation.finish()
+                } catch {
+                    let timedOut = String(describing: error).lowercased().contains("timed out")
+                    let runLatencyMs = max(0, Int(Date().timeIntervalSince(runStartedAt) * 1000))
+                    await self.emitDiagnostic(
+                        name: "model.call.failed",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "requestedProviderID": request.modelProviderID ?? "",
+                            "error": String(describing: error),
+                            "timedOut": String(timedOut),
+                            "streaming": "true",
+                        ]
+                    )
+                    await self.emitDiagnostic(
+                        name: "run.failed",
+                        runID: runID,
+                        sessionKey: request.sessionKey,
+                        metadata: [
+                            "latencyMs": String(runLatencyMs),
+                            "requestedProviderID": request.modelProviderID ?? "",
+                            "timedOut": String(timedOut),
+                            "error": String(describing: error),
+                            "streaming": "true",
+                        ]
+                    )
+                    continuation.finish(throwing: error)
+                }
+            }
         }
     }
 

@@ -21,6 +21,24 @@ struct AgentRuntimeTests {
         }
     }
 
+    struct StreamingProvider: ModelProvider {
+        let id = "streaming-provider"
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            ModelGenerationResponse(text: "fallback-\(request.prompt)", providerID: self.id, modelID: "streaming")
+        }
+
+        func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
+            _ = request
+            return AsyncThrowingStream { continuation in
+                continuation.yield(ModelStreamChunk(text: "stream-", isFinal: false))
+                continuation.yield(ModelStreamChunk(text: "output", isFinal: false))
+                continuation.yield(ModelStreamChunk(text: "", isFinal: true))
+                continuation.finish()
+            }
+        }
+    }
+
     @Test
     func toolCallsExecuteInRunLifecycle() async throws {
         let runtime = EmbeddedAgentRuntime()
@@ -89,6 +107,33 @@ struct AgentRuntimeTests {
         let events = await pipeline.recentEvents(limit: 10)
         #expect(events.contains(where: { $0.name == "run.failed" && $0.metadata["timedOut"] == "true" }))
         #expect(events.contains(where: { $0.name == "model.call.failed" && $0.metadata["timedOut"] == "true" }))
+    }
+
+    @Test
+    func runStreamEmitsChunksAndFinalMarker() async throws {
+        let router = ModelRouter()
+        await router.register(StreamingProvider())
+        let runtime = EmbeddedAgentRuntime(modelRouter: router)
+        try await runtime.setDefaultModelProviderID("streaming-provider")
+
+        let stream = await runtime.runStream(
+            AgentRunRequest(
+                runID: "run-stream",
+                sessionKey: "session-stream",
+                prompt: "stream me"
+            )
+        )
+
+        var chunks: [AgentRunStreamChunk] = []
+        for try await chunk in stream {
+            chunks.append(chunk)
+        }
+
+        #expect(chunks.count == 3)
+        #expect(chunks.dropLast().map(\.text).joined() == "stream-output")
+        #expect(chunks.last?.isFinal == true)
+        #expect(chunks.last?.runID == "run-stream")
+        #expect(chunks.last?.sessionKey == "session-stream")
     }
 
 }

@@ -541,30 +541,37 @@ public actor AutoReplyEngine {
             sessionKey: sessionKey,
             metadata: ["providerID": self.config.models.defaultProviderID]
         )
-
-        let result = try await self.runtime.run(
-            AgentRunRequest(
-                sessionKey: sessionKey,
-                prompt: runtimePrompt,
-                workspaceRootPath: self.config.agents.workspaceRoot
-            )
+        let runtimeRequest = AgentRunRequest(
+            sessionKey: sessionKey,
+            prompt: runtimePrompt,
+            workspaceRootPath: self.config.agents.workspaceRoot
         )
+        let runtimeOutput: String
+        if self.shouldUseStreamingRuntime() {
+            runtimeOutput = try await self.collectStreamingRuntimeOutput(
+                request: runtimeRequest,
+                sessionKey: sessionKey
+            )
+        } else {
+            let result = try await self.runtime.run(runtimeRequest)
+            runtimeOutput = result.output
+        }
 
         let outbound = OutboundMessage(
             channel: message.channel,
             accountID: message.accountID,
             peerID: message.peerID,
-            text: result.output
+            text: runtimeOutput
         )
         await self.emitDiagnostic(
             name: "runtime.completed",
             sessionKey: sessionKey,
-            metadata: ["outputLength": String(result.output.count)]
+            metadata: ["outputLength": String(runtimeOutput.count)]
         )
         await self.emitDiagnostic(
             name: "model.call.completed",
             sessionKey: sessionKey,
-            metadata: ["outputLength": String(result.output.count)]
+            metadata: ["outputLength": String(runtimeOutput.count)]
         )
         if let store = self.conversationMemoryStore {
             await store.appendAssistantTurn(
@@ -643,6 +650,33 @@ public actor AutoReplyEngine {
         }
         sections.append("## New User Message\n\(inboundText)")
         return sections.joined(separator: "\n\n")
+    }
+
+    private func shouldUseStreamingRuntime() -> Bool {
+        let local = self.config.models.local
+        return local.enabled && local.streamTokens
+    }
+
+    private func collectStreamingRuntimeOutput(
+        request: AgentRunRequest,
+        sessionKey: String
+    ) async throws -> String {
+        var output = ""
+        let stream = await self.runtime.runStream(request)
+        for try await chunk in stream {
+            if !chunk.text.isEmpty {
+                output += chunk.text
+            }
+            await self.emitDiagnostic(
+                name: "model.stream.chunk",
+                sessionKey: sessionKey,
+                metadata: [
+                    "chunkLength": String(chunk.text.count),
+                    "isFinal": String(chunk.isFinal),
+                ]
+            )
+        }
+        return output
     }
 
     private func handleCommandIfRequested(

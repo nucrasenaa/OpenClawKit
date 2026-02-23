@@ -12,6 +12,24 @@ struct ChannelAutoReplyTests {
         }
     }
 
+    struct StreamingLocalProvider: ModelProvider {
+        let id = LocalModelProvider.providerID
+
+        func generate(_ request: ModelGenerationRequest) async throws -> ModelGenerationResponse {
+            ModelGenerationResponse(text: "fallback-\(request.prompt)", providerID: self.id, modelID: "stream-local")
+        }
+
+        func generateStream(_ request: ModelGenerationRequest) async -> AsyncThrowingStream<ModelStreamChunk, Error> {
+            _ = request
+            return AsyncThrowingStream { continuation in
+                continuation.yield(ModelStreamChunk(text: "stream-", isFinal: false))
+                continuation.yield(ModelStreamChunk(text: "ok", isFinal: false))
+                continuation.yield(ModelStreamChunk(text: "", isFinal: true))
+                continuation.finish()
+            }
+        }
+    }
+
     actor DiagnosticCollector {
         private(set) var events: [RuntimeDiagnosticEvent] = []
 
@@ -250,6 +268,51 @@ struct ChannelAutoReplyTests {
         #expect(second.text.contains("[user] first question"))
         #expect(second.text.contains("## New User Message"))
         #expect(second.text.contains("second question"))
+    }
+
+    @Test
+    func autoReplyEngineUsesStreamingRuntimeWhenLocalStreamingEnabled() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("openclawkit-autoreply-streaming-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let sessionsPath = root.appendingPathComponent("sessions.json", isDirectory: false)
+        let sessionStore = SessionStore(fileURL: sessionsPath)
+        let registry = ChannelRegistry()
+        let webchat = InMemoryChannelAdapter(id: .webchat)
+        await registry.register(webchat)
+        try await webchat.start()
+
+        let collector = DiagnosticCollector()
+        let runtime = EmbeddedAgentRuntime()
+        await runtime.registerModelProvider(StreamingLocalProvider())
+        try await runtime.setDefaultModelProviderID(LocalModelProvider.providerID)
+
+        let engine = AutoReplyEngine(
+            config: OpenClawConfig(
+                agents: AgentsConfig(defaultAgentID: "main", workspaceRoot: root.path),
+                models: ModelsConfig(
+                    defaultProviderID: LocalModelProvider.providerID,
+                    local: LocalModelConfig(enabled: true, streamTokens: true)
+                )
+            ),
+            sessionStore: sessionStore,
+            channelRegistry: registry,
+            runtime: runtime,
+            diagnosticsSink: { event in
+                await collector.append(event)
+            }
+        )
+
+        let outbound = try await engine.process(
+            InboundMessage(channel: .webchat, accountID: "user-1", peerID: "peer", text: "hello")
+        )
+
+        #expect(outbound.text == "stream-ok")
+        let events = await collector.snapshot()
+        #expect(events.contains(where: { $0.name == "model.stream.chunk" }))
     }
 
     @Test
