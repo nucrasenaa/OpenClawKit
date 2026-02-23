@@ -42,8 +42,10 @@ Never commit `.env`.
 3. `swift test`
 4. `./Scripts/build-ios-example.sh`
 
-## 2026.1.3 Reliability Coverage Highlights
+## 2026.1.4 Reliability + Security Coverage Highlights
 
-- Runtime diagnostics coverage for successful and timeout-failure run paths.
-- Channel auto-reply coverage for outbound delivery failures and emitted diagnostics metadata.
-- Gateway transport E2E coverage that asserts reconnect attempts stop after explicit disconnect.
+- Runtime streaming coverage for chunked generation and final-marker behavior.
+- Channel auto-reply coverage for stream-path execution and typing heartbeat stop conditions.
+- Credential-store coverage for keychain/file backends plus legacy plaintext secret migration.
+- Security-audit coverage for risky defaults, plaintext secret detection, permission checks, and diagnostics emission.
+- Throttling coverage across channel outbound delivery and provider routing (`delay` and `drop` strategies).

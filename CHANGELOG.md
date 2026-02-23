@@ -1,5 +1,46 @@
 # Changelog
 
+## 2026.1.4 - 2026-02-23
+
+### Added
+
+- Cross-platform credential storage primitives with `CredentialStore`, including
+  `KeychainCredentialStore` on Apple platforms and `FileCredentialStore`
+  fallback behavior for non-Keychain environments.
+- Streaming runtime execution surface (`EmbeddedAgentRuntime.runStream`) and
+  channel streaming integration path for progressive output handling.
+- Typing heartbeat lifecycle support in auto-reply orchestration for Discord and
+  Telegram long-running reply flows.
+- Security audit primitives (`SecurityAuditRunner`, `SecurityAuditReport`) for
+  risky defaults, plaintext-secret detection, and filesystem permission checks.
+- Per-channel outbound throttling (`ChannelSendThrottlePolicy`) and per-provider
+  throttling (`ModelProviderThrottlePolicy`) with delay/drop strategies.
+
+### Changed
+
+- iOS example deploy settings now persist secrets in secure storage with one-time
+  legacy plaintext migration and scrubbed JSON persistence.
+- iOS example skills are project-owned and sourced from
+  `Examples/iOS/OpenClawiOS/skills` instead of repo-root `skills/`.
+- Auto-reply runtime flow now supports optional stream-driven response assembly
+  and emits stream-chunk diagnostics when enabled.
+- `OpenClawSDK` now exposes `runSecurityAudit(...)` and can publish audit
+  findings into `RuntimeDiagnosticsPipeline`.
+
+### Tests
+
+- Added credential migration and secure-store selection coverage for keychain +
+  fallback semantics.
+- Added iOS project-skills discovery regression coverage in `SkillRegistryTests`.
+- Added runtime streaming and auto-reply stream-path tests, including chunk/final
+  marker assertions.
+- Added typing heartbeat cadence/stop-condition tests for both Discord and
+  Telegram channels.
+- Added security audit coverage for severity classification, hardened-config
+  baselines, and diagnostics publication.
+- Added channel/model throttling regression coverage for burst delay, drop
+  behavior, retry diagnostics, and provider fallback behavior.
+
 ## 2026.1.3 - 2026-02-19
 
 ### Added

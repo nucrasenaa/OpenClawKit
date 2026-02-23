@@ -29,6 +29,15 @@
 ## Observability Helpers
 
 - `makeDiagnosticsPipeline(eventLimit:)`
+- `runSecurityAudit(options:diagnosticsPipeline:)`
+
+## Security and Hardening Types
+
+- `SecurityAuditOptions`
+- `SecurityAuditReport`
+- `SecurityAuditFinding`
+- `SecurityAuditSeverity`
+- `CredentialStore` (core protocol for secure secret persistence)
 
 ## Related Supporting Types
 
@@ -39,5 +48,6 @@
 - `RuntimeDiagnosticsPipeline`
 - `RuntimeDiagnosticEvent`
 - `RuntimeUsageSnapshot`
+- `SecurityAuditReport`
 - `PortInUseError`
 - `ProcessResult`

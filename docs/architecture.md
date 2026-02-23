@@ -13,7 +13,8 @@ while exposing a simple top-level facade.
 2. `OpenClawCore`
    - Cross-platform shims (crypto/network/security/process/fs)
    - Config and session persistence
-   - Cron, hooks, and security runtime state
+   - CredentialStore abstractions (`KeychainCredentialStore` + `FileCredentialStore`)
+   - Cron, hooks, security runtime state, and security audit reporting (`SecurityAuditRunner`)
    - Diagnostics and usage aggregation (`RuntimeDiagnosticsPipeline`)
 
 3. `OpenClawGateway`
@@ -24,6 +25,7 @@ while exposing a simple top-level facade.
 4. `OpenClawAgents`
    - Tool registry and runtime lifecycle events
    - Timeout-aware run execution and orchestration
+   - Streaming run execution (`runStream`) for progressive output consumers
    - Structured runtime diagnostics emission (`run.*`, `model.call.*`)
 
 5. `OpenClawPlugins`
@@ -33,7 +35,8 @@ while exposing a simple top-level facade.
 6. `OpenClawChannels`
    - Channel adapters and outbound routing
    - Auto-reply engine integrating sessions + runtime execution
-   - Delivery health snapshots, retry/backoff policy, and command handlers
+   - Delivery health snapshots, retry/backoff policy, throttling controls, and command handlers
+   - Typing heartbeat lifecycle for long-running Discord/Telegram reply flows
 
 7. `OpenClawMemory` and `OpenClawMedia`
    - Memory indexing/search primitives
@@ -59,6 +62,9 @@ into an injected `RuntimeDiagnosticSink`. Host apps can plug a
 - retain recent event timelines (`recentEvents(limit:)`)
 - inspect aggregate usage (`usageSnapshot()`)
 - power app-level diagnostics surfaces (for example, the expanded iOS sample tabs)
+
+`OpenClawSDK.runSecurityAudit(...)` can also publish structured `security` subsystem
+events (`audit.completed`, `audit.finding`) into the same pipeline.
 
 ## Feature Implementation Guidance
 

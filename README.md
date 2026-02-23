@@ -19,6 +19,8 @@ It ships actor-safe runtime primitives, channel adapters, model routing, skill e
 - Built-in model providers: OpenAI, OpenAI-compatible, Anthropic, Gemini, Foundation Models, local, and echo
 - Channel runtime with Discord, Telegram, WhatsApp Cloud, and local webchat adapter flow
 - Workspace skills system (`SKILL.md` + script entrypoints) with generic runtime invocation
+- Runtime streaming + typing heartbeat support for long-running channel replies
+- Secure credential and audit tooling (`CredentialStore`, `SecurityAuditRunner`) for safer app integrations
 - Centralized diagnostics/usage pipeline with runtime + channel telemetry snapshots
 - Strong test and CI posture: Swift Testing unit/E2E suites, Linux validation, iOS build gates, security scans
 
@@ -29,6 +31,7 @@ It ships actor-safe runtime primitives, channel adapters, model routing, skill e
 - [Quick Start](#quick-start)
 - [Skills and Tooling](#skills-and-tooling)
 - [Observability and Usage Metrics](#observability-and-usage-metrics)
+- [Security and Throttling](#security-and-throttling)
 - [iOS Example App](#ios-example-app)
 - [Package Modules](#package-modules)
 - [Testing and Quality Gates](#testing-and-quality-gates)
@@ -107,6 +110,11 @@ This flow gives you:
 
 OpenClawKit supports workspace skills from `skills/<name>/SKILL.md` with script entrypoints.
 
+For the bundled iOS example app, starter skills are project-owned in:
+
+- `Examples/iOS/OpenClawiOS/skills/<name>/SKILL.md`
+- Deploy flow syncs these into the app workspace before runtime start.
+
 - Explicit invocation:
   - `/skill weather {"location":"San Diego"}`
   - `/weather {"location":"San Diego"}`
@@ -115,8 +123,8 @@ OpenClawKit supports workspace skills from `skills/<name>/SKILL.md` with script 
 
 Sample weather skill:
 
-- Definition: `skills/weather/SKILL.md`
-- Entrypoint: `skills/weather/scripts/weather.js`
+- Definition: `Examples/iOS/OpenClawiOS/skills/weather/SKILL.md`
+- Entrypoint: `Examples/iOS/OpenClawiOS/skills/weather/scripts/weather.js`
 
 ## Observability and Usage Metrics
 
@@ -129,6 +137,15 @@ OpenClawKit includes a centralized telemetry actor:
 Runtime and auto-reply flows emit stable diagnostics names (`run.started`,
 `model.call.completed`, `skill.invoked`, `outbound.sent`, `outbound.failed`, etc.)
 that can be consumed directly by host apps.
+
+## Security and Throttling
+
+OpenClawKit includes lightweight hardening helpers:
+
+- `CredentialStore` abstraction for secure secret persistence (Keychain on Apple platforms).
+- `OpenClawSDK.runSecurityAudit(...)` for risky-default, plaintext-secret, and permissions checks.
+- `ChannelSendThrottlePolicy` for per-channel outbound throttling.
+- `ModelProviderThrottlePolicy` for per-provider request throttling and fallback-aware control.
 
 ## iOS Example App
 
