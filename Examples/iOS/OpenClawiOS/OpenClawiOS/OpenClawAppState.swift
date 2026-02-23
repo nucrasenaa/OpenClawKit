@@ -167,6 +167,8 @@ final class OpenClawAppState: ObservableObject {
         var discordAgentID: String
         var webchatAgentID: String
         var personality: String
+        var telegramBotToken: String
+        var telegramAllowList: String
 
         init(
             discordChannelID: String,
@@ -189,6 +191,8 @@ final class OpenClawAppState: ObservableObject {
             discordAgentID: String,
             webchatAgentID: String,
             personality: String,
+            telegramBotToken: String = "",
+            telegramAllowList: String = "",
             discordBotToken: String = "",
             openAIAPIKey: String = "",
             openAICompatibleAPIKey: String = "",
@@ -220,6 +224,8 @@ final class OpenClawAppState: ObservableObject {
             self.discordAgentID = discordAgentID
             self.webchatAgentID = webchatAgentID
             self.personality = personality
+            self.telegramBotToken = telegramBotToken
+            self.telegramAllowList = telegramAllowList
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -243,6 +249,8 @@ final class OpenClawAppState: ObservableObject {
             case discordAgentID
             case webchatAgentID
             case personality
+            case telegramBotToken
+            case telegramAllowList
         }
 
         private enum LegacySecretCodingKeys: String, CodingKey {
@@ -251,6 +259,8 @@ final class OpenClawAppState: ObservableObject {
             case openAICompatibleAPIKey
             case anthropicAPIKey
             case geminiAPIKey
+            case telegramBotToken
+            case telegramAllowList
         }
 
         init(from decoder: Decoder) throws {
@@ -275,6 +285,8 @@ final class OpenClawAppState: ObservableObject {
             self.discordAgentID = try container.decodeIfPresent(String.self, forKey: .discordAgentID) ?? ""
             self.webchatAgentID = try container.decodeIfPresent(String.self, forKey: .webchatAgentID) ?? ""
             self.personality = try container.decodeIfPresent(String.self, forKey: .personality) ?? ""
+            self.telegramBotToken = try container.decodeIfPresent(String.self, forKey: .telegramBotToken) ?? ""
+            self.telegramAllowList = try container.decodeIfPresent(String.self, forKey: .telegramAllowList) ?? ""
 
             let legacy = try decoder.container(keyedBy: LegacySecretCodingKeys.self)
             self.discordBotToken = try legacy.decodeIfPresent(String.self, forKey: .discordBotToken) ?? ""
@@ -282,6 +294,8 @@ final class OpenClawAppState: ObservableObject {
             self.openAICompatibleAPIKey = try legacy.decodeIfPresent(String.self, forKey: .openAICompatibleAPIKey) ?? ""
             self.anthropicAPIKey = try legacy.decodeIfPresent(String.self, forKey: .anthropicAPIKey) ?? ""
             self.geminiAPIKey = try legacy.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
+            self.telegramBotToken = try legacy.decodeIfPresent(String.self, forKey: .telegramBotToken) ?? self.telegramBotToken
+            self.telegramAllowList = try legacy.decodeIfPresent(String.self, forKey: .telegramAllowList) ?? self.telegramAllowList
         }
 
         func encode(to encoder: Encoder) throws {
@@ -306,6 +320,8 @@ final class OpenClawAppState: ObservableObject {
             try container.encode(self.discordAgentID, forKey: .discordAgentID)
             try container.encode(self.webchatAgentID, forKey: .webchatAgentID)
             try container.encode(self.personality, forKey: .personality)
+            try container.encode(self.telegramBotToken, forKey: .telegramBotToken)
+            try container.encode(self.telegramAllowList, forKey: .telegramAllowList)
         }
     }
 
@@ -316,13 +332,17 @@ final class OpenClawAppState: ObservableObject {
         var openAICompatibleAPIKey: String
         var anthropicAPIKey: String
         var geminiAPIKey: String
+        var telegramBotToken: String
+        var telegramAllowList: String
 
         static let empty = SecretSnapshot(
             discordBotToken: "",
             openAIAPIKey: "",
             openAICompatibleAPIKey: "",
             anthropicAPIKey: "",
-            geminiAPIKey: ""
+            geminiAPIKey: "",
+            telegramBotToken: "",
+            telegramAllowList: ""
         )
 
         var legacySecretsByStoreKey: [String: String] {
@@ -332,6 +352,8 @@ final class OpenClawAppState: ObservableObject {
                 SecretStoreKey.openAICompatibleAPIKey: self.openAICompatibleAPIKey,
                 SecretStoreKey.anthropicAPIKey: self.anthropicAPIKey,
                 SecretStoreKey.geminiAPIKey: self.geminiAPIKey,
+                SecretStoreKey.telegramBotToken: self.telegramBotToken,
+                SecretStoreKey.telegramAllowList: self.telegramAllowList,
             ]
         }
 
@@ -340,7 +362,9 @@ final class OpenClawAppState: ObservableObject {
                 !self.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 !self.openAICompatibleAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 !self.anthropicAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                !self.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                !self.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.telegramBotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                !self.telegramAllowList.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
     }
 
@@ -351,6 +375,8 @@ final class OpenClawAppState: ObservableObject {
         static let openAICompatibleAPIKey = "models.openaiCompatible.apiKey"
         static let anthropicAPIKey = "models.anthropic.apiKey"
         static let geminiAPIKey = "models.gemini.apiKey"
+        static let telegramBotToken = "channels.telegram.botToken"
+        static let telegramAllowList = "channels.telegram.allowList"
 
         static let ordered: [String] = [
             discordBotToken,
@@ -358,6 +384,8 @@ final class OpenClawAppState: ObservableObject {
             openAICompatibleAPIKey,
             anthropicAPIKey,
             geminiAPIKey,
+            telegramBotToken,
+            telegramAllowList,
         ]
     }
 
@@ -368,6 +396,8 @@ final class OpenClawAppState: ObservableObject {
     @Published var openAICompatibleBaseURL: String = "https://api.openai.com/v1"
     @Published var anthropicAPIKey: String = ""
     @Published var geminiAPIKey: String = ""
+    @Published var telegramBotToken: String = ""
+    @Published var telegramAllowList: String = ""
     @Published var selectedProvider: DeployProvider = .openAI
     @Published var selectedModelID: String = DeployProvider.openAI.defaultModelID
     @Published var localRuntime: String = "llmfarm"
@@ -467,6 +497,7 @@ final class OpenClawAppState: ObservableObject {
 
     private var webchatAdapter: InMemoryChannelAdapter?
     private var discordAdapter: DiscordChannelAdapter?
+    private var telegramAdapter: TelegramChannelAdapter?
     private var channelRegistry: ChannelRegistry?
     private var replyEngine: AutoReplyEngine?
     private var conversationMemoryStore: ConversationMemoryStore?
@@ -525,12 +556,19 @@ final class OpenClawAppState: ObservableObject {
                 pollIntervalMs: 2_000,
                 mentionOnly: true
             )
+            let telegramConfig = TelegramChannelConfig(
+                enabled: !self.telegramBotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                botToken: normalized(self.telegramBotToken),
+                defaultChatID: normalized(self.telegramAllowList),
+                pollIntervalMs: 2_000,
+                mentionOnly: false
+            )
             let modelsConfig = try self.makeModelsConfig()
             let agentsConfig = self.makeAgentsConfig()
 
             let config = OpenClawConfig(
                 agents: agentsConfig,
-                channels: ChannelsConfig(discord: discordConfig),
+                channels: ChannelsConfig(discord: discordConfig, telegram: telegramConfig),
                 routing: RoutingConfig(
                     defaultSessionKey: self.sharedConversationSessionKey,
                     includeChannelID: false,
@@ -578,6 +616,18 @@ final class OpenClawAppState: ObservableObject {
                 self.discordAdapter = nil
             }
 
+            if telegramConfig.enabled {
+                let telegram = TelegramChannelAdapter(config: telegramConfig)
+                await telegram.setInboundHandler { [replyEngine] inbound in
+                    _ = try? await replyEngine.process(inbound)
+                }
+                await channelRegistry.register(telegram)
+                try await telegram.start()
+                self.telegramAdapter = telegram
+            } else {
+                self.telegramAdapter = nil
+            }
+
             self.webchatAdapter = webchat
             self.channelRegistry = channelRegistry
             self.replyEngine = replyEngine
@@ -597,9 +647,12 @@ final class OpenClawAppState: ObservableObject {
             await self.refreshObservabilityState()
 
             self.deploymentState = .running
-            self.statusText = self.discordAdapter == nil
-                ? "Deployment running (local chat only, provider: \(self.selectedProvider.displayName))."
-                : "Deployment running (Discord + local chat, provider: \(self.selectedProvider.displayName))."
+            let activeChannels = [
+                self.discordAdapter != nil ? "Discord" : nil,
+                self.telegramAdapter != nil ? "Telegram" : nil,
+                "local chat"
+            ].compactMap { $0 }.joined(separator: " + ")
+            self.statusText = "Deployment running (\(activeChannels), provider: \(self.selectedProvider.displayName))."
         } catch {
             self.deploymentState = .failed
             self.statusText = "Deployment failed: \(error.localizedDescription)"
@@ -620,11 +673,15 @@ final class OpenClawAppState: ObservableObject {
         if let discordAdapter {
             await discordAdapter.stop()
         }
+        if let telegramAdapter {
+            await telegramAdapter.stop()
+        }
         if let webchatAdapter {
             await webchatAdapter.stop()
         }
 
         self.discordAdapter = nil
+        self.telegramAdapter = nil
         self.webchatAdapter = nil
         self.channelRegistry = nil
         self.replyEngine = nil
@@ -968,7 +1025,9 @@ final class OpenClawAppState: ObservableObject {
             openAIAPIKey: settings.openAIAPIKey,
             openAICompatibleAPIKey: settings.openAICompatibleAPIKey,
             anthropicAPIKey: settings.anthropicAPIKey,
-            geminiAPIKey: settings.geminiAPIKey
+            geminiAPIKey: settings.geminiAPIKey,
+            telegramBotToken: settings.telegramBotToken,
+            telegramAllowList: settings.telegramAllowList
         )
         self.applySecretSnapshot(self.legacySecrets)
         self.discordChannelID = settings.discordChannelID
@@ -991,6 +1050,8 @@ final class OpenClawAppState: ObservableObject {
         self.discordAgentID = settings.discordAgentID
         self.webchatAgentID = settings.webchatAgentID
         self.personality = settings.personality
+        self.telegramBotToken = settings.telegramBotToken
+        self.telegramAllowList = settings.telegramAllowList
         if self.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.selectedModelID = self.selectedProvider.defaultModelID
         }
@@ -1021,7 +1082,9 @@ final class OpenClawAppState: ObservableObject {
             defaultAgentID: self.defaultAgentID,
             discordAgentID: self.discordAgentID,
             webchatAgentID: self.webchatAgentID,
-            personality: self.personality
+            personality: self.personality,
+            telegramBotToken: self.telegramBotToken,
+            telegramAllowList: self.telegramAllowList
         )
         try FileManager.default.createDirectory(at: self.stateRoot, withIntermediateDirectories: true)
         let data = try self.encoder.encode(settings)
@@ -1065,6 +1128,8 @@ final class OpenClawAppState: ObservableObject {
         try await self.writeSecret(self.openAICompatibleAPIKey, for: SecretStoreKey.openAICompatibleAPIKey)
         try await self.writeSecret(self.anthropicAPIKey, for: SecretStoreKey.anthropicAPIKey)
         try await self.writeSecret(self.geminiAPIKey, for: SecretStoreKey.geminiAPIKey)
+        try await self.writeSecret(self.telegramBotToken, for: SecretStoreKey.telegramBotToken)
+        try await self.writeSecret(self.telegramAllowList, for: SecretStoreKey.telegramAllowList)
     }
 
     /// Writes or deletes one secret in the secure store based on current value.
@@ -1097,7 +1162,9 @@ final class OpenClawAppState: ObservableObject {
             openAIAPIKey: map[SecretStoreKey.openAIAPIKey] ?? "",
             openAICompatibleAPIKey: map[SecretStoreKey.openAICompatibleAPIKey] ?? "",
             anthropicAPIKey: map[SecretStoreKey.anthropicAPIKey] ?? "",
-            geminiAPIKey: map[SecretStoreKey.geminiAPIKey] ?? ""
+            geminiAPIKey: map[SecretStoreKey.geminiAPIKey] ?? "",
+            telegramBotToken: map[SecretStoreKey.telegramBotToken] ?? "",
+            telegramAllowList: map[SecretStoreKey.telegramAllowList] ?? ""
         )
         self.applySecretSnapshot(snapshot)
     }
@@ -1109,6 +1176,8 @@ final class OpenClawAppState: ObservableObject {
         self.openAICompatibleAPIKey = snapshot.openAICompatibleAPIKey
         self.anthropicAPIKey = snapshot.anthropicAPIKey
         self.geminiAPIKey = snapshot.geminiAPIKey
+        self.telegramBotToken = snapshot.telegramBotToken
+        self.telegramAllowList = snapshot.telegramAllowList
     }
 
     /// Persists personality text as workspace bootstrap context.
