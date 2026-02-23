@@ -2,6 +2,7 @@ import Foundation
 import OpenClawKit
 import Combine
 import SwiftUI
+import AVFoundation
 
 /// Observable app state coordinating deployment and chat flows in the iOS example.
 @MainActor
@@ -647,6 +648,7 @@ final class OpenClawAppState: ObservableObject {
             await self.refreshObservabilityState()
 
             self.deploymentState = .running
+            BackgroundRunner.shared.start()
             let activeChannels = [
                 self.discordAdapter != nil ? "Discord" : nil,
                 self.telegramAdapter != nil ? "Telegram" : nil,
@@ -693,6 +695,7 @@ final class OpenClawAppState: ObservableObject {
         self.usageSnapshot = nil
         self.activeRetryPolicy = ChannelSendRetryPolicy()
         self.deploymentState = .stopped
+        BackgroundRunner.shared.stop()
         self.statusText = "Deployment stopped."
     }
 
@@ -1244,4 +1247,70 @@ final class OpenClawAppState: ObservableObject {
 private func normalized(_ value: String) -> String? {
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+}
+
+/// Helps keep the application alive in the background by playing silent audio.
+final class BackgroundRunner {
+    static let shared = BackgroundRunner()
+
+    private var engine: AVAudioEngine?
+    private var isRunning = false
+
+    func start() {
+        guard !isRunning else { return }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, options: [.mixWithOthers])
+            try session.setActive(true)
+
+            let newEngine = AVAudioEngine()
+            let playerNode = AVAudioPlayerNode()
+
+            newEngine.attach(playerNode)
+            newEngine.connect(playerNode, to: newEngine.mainMixerNode, format: nil)
+
+            try newEngine.start()
+
+            // To legitimately keep the app alive and prevent suspension when the screen is off,
+            // we schedule a minute silent buffer to loop endlessly.
+            let format = playerNode.outputFormat(forBus: 0)
+            if let silentBuffer = createSilentBuffer(format: format) {
+                playerNode.scheduleBuffer(silentBuffer, at: nil, options: .loops, completionHandler: nil)
+                playerNode.play()
+            }
+
+            self.engine = newEngine
+            self.isRunning = true
+            print("BackgroundRunner started.")
+        } catch {
+            print("Failed to start BackgroundRunner: \(error)")
+        }
+    }
+
+    func stop() {
+        guard isRunning else { return }
+        engine?.stop()
+        engine = nil
+        do {
+            try AVAudioSession.sharedInstance().setActive(false)
+        } catch {
+            print("Failed to deactivate audio session: \(error)")
+        }
+        isRunning = false
+        print("BackgroundRunner stopped.")
+    }
+
+    private func createSilentBuffer(format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024) else { return nil }
+        buffer.frameLength = 1024
+        for channel in 0..<Int(format.channelCount) {
+            if let channelData = buffer.floatChannelData?[channel] {
+                for frame in 0..<1024 {
+                    channelData[frame] = 0.0
+                }
+            }
+        }
+        return buffer
+    }
 }
