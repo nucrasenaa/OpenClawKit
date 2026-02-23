@@ -198,4 +198,31 @@ struct SkillRegistryTests {
             #expect(String(describing: error).lowercased().contains("skill directory"))
         }
     }
+
+    @Test
+    func loadsWeatherSkillFromIOSExampleProjectDirectory() async throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let exampleSkillsRoot = repoRoot
+            .appendingPathComponent("Examples")
+            .appendingPathComponent("iOS")
+            .appendingPathComponent("OpenClawiOS")
+            .appendingPathComponent("skills")
+        #expect(FileManager.default.fileExists(atPath: exampleSkillsRoot.path))
+
+        let workspaceRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRoot) }
+
+        let registry = SkillRegistry(workspaceRoot: workspaceRoot, extraSkillDirs: [exampleSkillsRoot])
+        let skills = try await registry.loadSkills()
+        let weather = try #require(skills.first(where: { $0.name == "weather" }))
+        let entrypoint = try await registry.resolveEntrypoint(for: weather)
+
+        #expect(entrypoint?.lastPathComponent == "weather.js")
+        #expect(entrypoint?.path.contains("/OpenClawiOS/skills/weather/scripts/") == true)
+    }
 }

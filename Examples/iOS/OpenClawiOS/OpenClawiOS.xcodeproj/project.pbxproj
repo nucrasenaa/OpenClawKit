@@ -21,6 +21,11 @@
 			path = OpenClawiOS;
 			sourceTree = "<group>";
 		};
+		7D9B59212F5A8A8800D0476B /* skills */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = skills;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,6 +44,7 @@
 			isa = PBXGroup;
 			children = (
 				7D9B58E72F42716400D0476B /* OpenClawiOS */,
+				7D9B59212F5A8A8800D0476B /* skills */,
 				7D9B590D2F4272F600D0476B /* Frameworks */,
 				7D9B58E62F42716400D0476B /* Products */,
 			);
@@ -77,6 +83,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7D9B58E72F42716400D0476B /* OpenClawiOS */,
+				7D9B59212F5A8A8800D0476B /* skills */,
 			);
 			name = OpenClawiOS;
 			packageProductDependencies = (

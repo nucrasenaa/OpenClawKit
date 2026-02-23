@@ -515,7 +515,7 @@ final class OpenClawAppState: ObservableObject {
             }
             try await self.persistSecretsToSecureStore()
             try self.persistBootstrapFiles()
-            try self.syncProjectSkillsIntoWorkspace()
+            try self.syncExampleSkillsIntoWorkspace()
 
             let discordConfig = DiscordChannelConfig(
                 enabled: !self.discordBotToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -1125,9 +1125,9 @@ final class OpenClawAppState: ObservableObject {
         try trimmed.write(to: soulURL, atomically: true, encoding: .utf8)
     }
 
-    /// Syncs repository skill folders into the iOS sandbox workspace.
-    private func syncProjectSkillsIntoWorkspace() throws {
-        guard let sourceSkillsRoot = Self.resolveProjectSkillsRoot(),
+    /// Syncs iOS example project skills into the app sandbox workspace.
+    private func syncExampleSkillsIntoWorkspace() throws {
+        guard let sourceSkillsRoot = Self.resolveExampleSkillsRoot(),
               FileManager.default.fileExists(atPath: sourceSkillsRoot.path)
         else {
             return
@@ -1152,22 +1152,20 @@ final class OpenClawAppState: ObservableObject {
         }
     }
 
-    /// Resolves the repository-level `skills` directory when running from source.
-    private static func resolveProjectSkillsRoot() -> URL? {
-        var current = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        for _ in 0..<10 {
-            let candidate = current.appendingPathComponent("skills", isDirectory: true)
-            let weatherMarker = candidate
-                .appendingPathComponent("weather", isDirectory: true)
-                .appendingPathComponent("SKILL.md")
-            if FileManager.default.fileExists(atPath: weatherMarker.path) {
-                return candidate
-            }
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path {
-                break
-            }
-            current = parent
+    /// Resolves the iOS example `skills` directory from bundle or source tree.
+    private static func resolveExampleSkillsRoot() -> URL? {
+        if let bundled = Bundle.main.resourceURL?.appendingPathComponent("skills", isDirectory: true),
+           FileManager.default.fileExists(atPath: bundled.path)
+        {
+            return bundled
+        }
+
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("skills", isDirectory: true)
+        if FileManager.default.fileExists(atPath: sourceRoot.path) {
+            return sourceRoot
         }
         return nil
     }
